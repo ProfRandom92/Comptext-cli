@@ -29,7 +29,21 @@ CompText keeps these boundaries in front of future agent execution:
 - Proposal-before-apply remains required.
 - Generated proposals are not applied automatically.
 - External agents are not invoked unless a future phase adds an explicit execution gate.
-- Phase 1 treats `--allow-external` as a declaration of intent only; Codex and Antigravity execution still returns `not-implemented`.
+- Phase 1 treats Codex and Antigravity runs as dry-run-only unless later phase flags are used.
+
+## Phase 2 Behavior
+
+Phase 2 adds execution plans only. It does not invoke Codex CLI, Antigravity CLI, or any other external agent.
+
+`ctxt agent run --kind codex --task "<task>" --allow-external --proposal-only` and the matching `antigravity` command return an `execution-plan-only` JSON response. The run artifact records the same execution plan and confirms that no external process was invoked.
+
+Proposal-only means:
+
+- no apply
+- no external process
+- no network
+
+This prepares the contract for future gated execution without changing the Phase 1 safety boundary.
 
 ## Future Phases
 

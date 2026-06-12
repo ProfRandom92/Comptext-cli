@@ -525,34 +525,90 @@ fn agent_run_antigravity_is_dry_run_by_default() {
 }
 
 #[test]
-fn agent_run_codex_allow_external_is_not_implemented() {
+fn agent_run_codex_allow_external_proposal_only_returns_execution_plan() {
     let _guard = test_lock();
     let run_path = std::path::Path::new(".comptext/runs/latest/run.json");
     let _run_guard = FileGuard::new(run_path);
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
-        .args([
-            "--json",
-            "agent",
-            "run",
-            "--kind",
-            "codex",
-            "--task",
-            "Codex gated smoke",
-            "--allow-external",
-        ])
-        .output()
-        .expect("ctxt binary should run");
-
-    assert!(!output.status.success());
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
+    let stdout = run(&[
+        "--json",
+        "agent",
+        "run",
+        "--kind",
+        "codex",
+        "--task",
+        "Codex execution plan smoke",
+        "--allow-external",
+        "--proposal-only",
+    ]);
     let value: serde_json::Value =
         serde_json::from_str(&stdout).expect("agent run JSON should parse");
     assert_eq!(value["kind"], "codex");
     assert_eq!(value["external_execution"], false);
     assert_eq!(value["dry_run"], false);
-    assert_eq!(value["ok"], false);
-    assert_eq!(value["status"], "not-implemented");
+    assert_eq!(value["allow_external"], true);
+    assert_eq!(value["proposal_only"], true);
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["status"], "execution-plan-only");
+    assert_eq!(value["execution_plan"]["agent_kind"], "codex");
+    assert_eq!(value["execution_plan"]["mode"], "proposal-only");
+    assert_eq!(value["execution_plan"]["external_process_invoked"], false);
+    assert_eq!(value["execution_plan"]["network_default"], "deny");
+    assert_eq!(value["execution_plan"]["writes_allowed"], false);
+    assert_eq!(value["execution_plan"]["apply_allowed"], false);
+    assert!(value["would_run"].as_str().unwrap().contains("codex"));
+    assert_eq!(value["safety"]["external_agent_invoked"], false);
+
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(run_path).unwrap())
+            .expect("run artifact should parse");
+    assert_eq!(artifact["allow_external"], true);
+    assert_eq!(artifact["proposal_only"], true);
+    assert_eq!(artifact["status"], "execution-plan-only");
+    assert_eq!(artifact["execution_plan"]["agent_kind"], "codex");
+    assert_eq!(artifact["safety_flags"]["external_agent_invoked"], false);
+    assert_eq!(artifact["safety_flags"]["apply_allowed"], false);
+    assert_eq!(artifact["safety_flags"]["network_allowed"], false);
+}
+
+#[test]
+fn agent_run_antigravity_allow_external_proposal_only_returns_execution_plan() {
+    let _guard = test_lock();
+    let run_path = std::path::Path::new(".comptext/runs/latest/run.json");
+    let _run_guard = FileGuard::new(run_path);
+
+    let stdout = run(&[
+        "--json",
+        "agent",
+        "run",
+        "--kind",
+        "antigravity",
+        "--task",
+        "Antigravity execution plan smoke",
+        "--allow-external",
+        "--proposal-only",
+    ]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("agent run JSON should parse");
+    assert_eq!(value["kind"], "antigravity");
+    assert_eq!(value["external_execution"], false);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["allow_external"], true);
+    assert_eq!(value["proposal_only"], true);
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["status"], "execution-plan-only");
+    assert_eq!(value["execution_plan"]["agent_kind"], "antigravity");
+    assert_eq!(value["execution_plan"]["mode"], "proposal-only");
+    assert_eq!(value["execution_plan"]["external_process_invoked"], false);
+    assert!(value["would_run"].as_str().unwrap().contains("antigravity"));
+
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(run_path).unwrap())
+            .expect("run artifact should parse");
+    assert_eq!(artifact["execution_plan"]["agent_kind"], "antigravity");
+    assert_eq!(artifact["safety_flags"]["external_agent_invoked"], false);
+    assert_eq!(artifact["safety_flags"]["apply_allowed"], false);
+    assert_eq!(artifact["safety_flags"]["network_allowed"], false);
 }
 
 #[test]

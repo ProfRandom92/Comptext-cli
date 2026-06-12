@@ -109,6 +109,12 @@ enum Command {
         task: String,
         allow_external: bool,
     },
+    AgentRunPlan {
+        kind: String,
+        task: String,
+        allow_external: bool,
+        proposal_only: bool,
+    },
     Benchmark {
         provider: Option<String>,
         task: String,
@@ -185,17 +191,21 @@ pub struct Proposal {
     pub risk_notes: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct AgentRunArtifact {
     pub schema_version: String,
     pub task: String,
     pub agent_kind: String,
     pub external_execution: bool,
     pub dry_run: bool,
+    pub allow_external: bool,
+    pub proposal_only: bool,
+    pub status: String,
     pub context_pack: String,
     pub network_default: String,
     pub proposal_required: bool,
     pub validation_commands: Vec<String>,
+    pub execution_plan: Option<serde_json::Value>,
     pub timestamp: String,
     pub safety_flags: HashMap<String, bool>,
 }
@@ -351,7 +361,26 @@ where
             kind,
             task,
             allow_external,
-        }) => match handle_agent_run(&kind, &task, allow_external, &config, json_output) {
+        }) => match handle_agent_run(&kind, &task, allow_external, false, &config, json_output) {
+            Ok(code) => code,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::AgentRunPlan {
+            kind,
+            task,
+            allow_external,
+            proposal_only,
+        }) => match handle_agent_run(
+            &kind,
+            &task,
+            allow_external,
+            proposal_only,
+            &config,
+            json_output,
+        ) {
             Ok(code) => code,
             Err(e) => {
                 emit_error(json_output, &e);
@@ -430,12 +459,95 @@ fn emit_error(json_output: bool, message: &str) {
     }
 }
 
+fn parse_agent_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err("missing subcommand for 'agent'. Usage: ctxt agent list | run".to_string());
+    }
+
+    match argv[1].as_str() {
+        "list" => {
+            if argv.len() > 2 {
+                return Err(format!(
+                    "unexpected argument '{}' for 'agent list'",
+                    argv[2]
+                ));
+            }
+            Ok(Command::AgentList)
+        }
+        "run" => {
+            let mut kind = None;
+            let mut task = None;
+            let mut allow_external = false;
+            let mut proposal_only = false;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--kind" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing kind after --kind".to_string());
+                        }
+                        if kind.is_some() {
+                            return Err("duplicate --kind for 'agent run'".to_string());
+                        }
+                        kind = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--task" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing task after --task".to_string());
+                        }
+                        if task.is_some() {
+                            return Err("duplicate --task for 'agent run'".to_string());
+                        }
+                        task = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--allow-external" => {
+                        allow_external = true;
+                        i += 1;
+                    }
+                    "--proposal-only" => {
+                        proposal_only = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(format!("unexpected argument '{other}' for 'agent run'"));
+                    }
+                }
+            }
+
+            let kind = kind.ok_or_else(|| "missing --kind for 'agent run'".to_string())?;
+            let task = task.ok_or_else(|| "missing --task for 'agent run'".to_string())?;
+            if proposal_only {
+                Ok(Command::AgentRunPlan {
+                    kind,
+                    task,
+                    allow_external,
+                    proposal_only,
+                })
+            } else {
+                Ok(Command::AgentRun {
+                    kind,
+                    task,
+                    allow_external,
+                })
+            }
+        }
+        other => Err(format!("unsupported subcommand '{}' for 'agent'", other)),
+    }
+}
+
 fn parse(argv: &[String]) -> Result<Command, String> {
     if argv.is_empty() {
         return Ok(Command::Help);
     }
 
     let first = &argv[0];
+    if first == "agent" {
+        return parse_agent_command(argv);
+    }
+
     match first.as_str() {
         "--help" | "-h" | "help" => {
             if argv.len() > 1 {
@@ -2285,14 +2397,41 @@ fn unix_timestamp_string() -> Result<String, String> {
     Ok(secs.to_string())
 }
 
-fn write_agent_run_artifact(
-    kind: &str,
-    task: &str,
+fn agent_execution_plan(kind: &str) -> serde_json::Value {
+    serde_json::json!({
+        "agent_kind": kind,
+        "mode": "proposal-only",
+        "external_process_invoked": false,
+        "network_default": "deny",
+        "writes_allowed": false,
+        "apply_allowed": false,
+        "expected_outputs": [
+            ".comptext/context_pack.latest.json",
+            ".comptext/runs/latest/run.json",
+            "proposals/proposal.latest.json"
+        ],
+        "validation_required": validation_commands()
+            .iter()
+            .map(|cmd| (*cmd).to_string())
+            .collect::<Vec<String>>()
+    })
+}
+
+struct AgentRunArtifactInput<'a> {
+    kind: &'a str,
+    task: &'a str,
     dry_run: bool,
     allow_external: bool,
+    proposal_only: bool,
+    status: &'a str,
+    execution_plan: Option<serde_json::Value>,
+}
+
+fn write_agent_run_artifact(
+    input: &AgentRunArtifactInput<'_>,
     config: &Config,
 ) -> Result<String, String> {
-    let cp = build_context_pack(task)?;
+    let cp = build_context_pack(input.task)?;
     std::fs::create_dir_all(".comptext/runs/latest")
         .map_err(|e| format!("failed to create run artifact directory: {e}"))?;
 
@@ -2302,19 +2441,25 @@ fn write_agent_run_artifact(
         .map_err(|e| format!("failed to write context pack: {e}"))?;
 
     let mut safety_flags = HashMap::new();
-    safety_flags.insert("allow_external".to_string(), allow_external);
+    safety_flags.insert("allow_external".to_string(), input.allow_external);
+    safety_flags.insert("proposal_only".to_string(), input.proposal_only);
     safety_flags.insert(
         "apply_requires_approval".to_string(),
         config.policy.apply_requires_confirmation,
     );
     safety_flags.insert("external_agent_invoked".to_string(), false);
+    safety_flags.insert("apply_allowed".to_string(), false);
+    safety_flags.insert("network_allowed".to_string(), false);
 
     let artifact = AgentRunArtifact {
         schema_version: "0.1".to_string(),
-        task: task.to_string(),
-        agent_kind: kind.to_string(),
+        task: input.task.to_string(),
+        agent_kind: input.kind.to_string(),
         external_execution: false,
-        dry_run,
+        dry_run: input.dry_run,
+        allow_external: input.allow_external,
+        proposal_only: input.proposal_only,
+        status: input.status.to_string(),
         context_pack: ".comptext/context_pack.latest.json".to_string(),
         network_default: config.policy.network_default.clone(),
         proposal_required: config.defaults.proposal_required,
@@ -2322,6 +2467,7 @@ fn write_agent_run_artifact(
             .iter()
             .map(|cmd| (*cmd).to_string())
             .collect(),
+        execution_plan: input.execution_plan.clone(),
         timestamp: unix_timestamp_string()?,
         safety_flags,
     };
@@ -2338,6 +2484,7 @@ fn handle_agent_run(
     kind: &str,
     task: &str,
     allow_external: bool,
+    proposal_only: bool,
     config: &Config,
     _json_output: bool,
 ) -> Result<i32, String> {
@@ -2350,13 +2497,59 @@ fn handle_agent_run(
         "codex" | "antigravity" => !allow_external,
         _ => unreachable!(),
     };
-    let artifact_path = write_agent_run_artifact(kind, task, dry_run, allow_external, config)?;
+    let status = if allow_external && proposal_only && matches!(kind, "codex" | "antigravity") {
+        "execution-plan-only"
+    } else if allow_external && matches!(kind, "codex" | "antigravity") {
+        "not-implemented"
+    } else if dry_run {
+        "dry-run"
+    } else {
+        "local"
+    };
+    let execution_plan = if status == "execution-plan-only" {
+        Some(agent_execution_plan(kind))
+    } else {
+        None
+    };
+    let artifact_input = AgentRunArtifactInput {
+        kind,
+        task,
+        dry_run,
+        allow_external,
+        proposal_only,
+        status,
+        execution_plan: execution_plan.clone(),
+    };
+    let artifact_path = write_agent_run_artifact(&artifact_input, config)?;
     let would_run = agent_would_run(kind, task);
     let safety = serde_json::json!({
         "network_default": config.policy.network_default,
         "proposal_required": config.defaults.proposal_required,
-        "apply_requires_approval": config.policy.apply_requires_confirmation
+        "apply_requires_approval": config.policy.apply_requires_confirmation,
+        "external_agent_invoked": false
     });
+
+    if status == "execution-plan-only" {
+        println!(
+            "{}",
+            serde_json::json!({
+                "command": "agent run",
+                "kind": kind,
+                "task": task,
+                "ok": true,
+                "dry_run": false,
+                "external_execution": false,
+                "allow_external": true,
+                "proposal_only": true,
+                "status": status,
+                "would_run": would_run,
+                "execution_plan": execution_plan,
+                "safety": safety,
+                "run_artifact": artifact_path
+            })
+        );
+        return Ok(0);
+    }
 
     if allow_external && matches!(kind, "codex" | "antigravity") {
         println!(
@@ -2368,7 +2561,9 @@ fn handle_agent_run(
                 "external_execution": false,
                 "dry_run": false,
                 "ok": false,
-                "status": "not-implemented",
+                "allow_external": allow_external,
+                "proposal_only": proposal_only,
+                "status": status,
                 "would_run": would_run,
                 "run_artifact": artifact_path,
                 "safety": safety
@@ -2385,6 +2580,9 @@ fn handle_agent_run(
             "task": task,
             "external_execution": false,
             "dry_run": dry_run,
+            "allow_external": allow_external,
+            "proposal_only": proposal_only,
+            "status": status,
             "ok": true,
             "would_run": would_run,
             "run_artifact": artifact_path,
