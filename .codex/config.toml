@@ -1,0 +1,9 @@
+# Local-only Codex workspace config for comptext-cli-agent-work
+# Treat this folder as an experimental sandbox workspace.
+# Do not push, do not pull, do not create PRs.
+# Keep work inside this directory.
+# Prefer review/diff before changes.
+# Keep network off unless explicitly requested.
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"

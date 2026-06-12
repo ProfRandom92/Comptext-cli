@@ -195,7 +195,10 @@ cargo clippy -- -D warnings
 ```bash
 cargo run --bin ctxt -- --help
 cargo run --bin ctxt -- doctor
+cargo run --bin ctxt -- --json doctor
+cargo run --bin ctxt -- --json init --dry-run
 cargo run --bin ctxt -- providers list
+cargo run --bin ctxt -- --json providers list
 cargo run --bin ctxt -- version
 ```
 
@@ -213,3 +216,56 @@ cargo run --bin ctxt -- ask --dry-run "What is the next safe step?"
 cargo run --bin ctxt -- ask --provider dummy "How should I test this repo?"
 cargo run --bin ctxt -- propose --provider dummy "Add context inspect"
 ```
+
+## JSON Contract
+
+Use `--json` when another tool or Codex thread needs stable machine-readable output:
+
+```bash
+cargo run --bin ctxt -- --json doctor
+cargo run --bin ctxt -- --json providers list
+cargo run --bin ctxt -- --json context inspect
+cargo run --bin ctxt -- --json context pack --task "Explain this repository"
+cargo run --bin ctxt -- --json ask --dry-run "What changed?"
+cargo run --bin ctxt -- --json propose --provider dummy "Draft a narrow change"
+cargo run --bin ctxt -- --json artifacts list
+cargo run --bin ctxt -- --json artifacts read .comptext/context_pack.latest.json --max-bytes 4096
+cargo run --bin ctxt -- --json validate
+```
+
+JSON success output is a command-specific object with `ok: true`, a `command` name, and stable fields such as artifact paths, provider names, file counts, policy status, or validation commands.
+
+JSON errors are written to stderr:
+
+```json
+{"ok":false,"error":{"message":"unsupported command 'example'"}}
+```
+
+The JSON contract does not print credentials. Provider auth is reported as metadata such as environment variable names or source categories, not secret values.
+
+### Local Config Init
+
+`ctxt init` refuses implicit writes. Preview first:
+
+```bash
+cargo run --bin ctxt -- --json init --dry-run
+```
+
+Write only to an explicit repo-relative TOML path:
+
+```bash
+cargo run --bin ctxt -- --json init --out comptext.toml
+```
+
+Existing files are not overwritten.
+
+### Artifact Discovery
+
+Generated evidence stays local and can be discovered without broad filesystem reads:
+
+```bash
+cargo run --bin ctxt -- --json artifacts list
+cargo run --bin ctxt -- --json artifacts read proposals/proposal.latest.json --max-bytes 8192
+```
+
+Artifact reads are restricted to `.comptext/`, `proposals/`, and `reports/`, use bounded excerpts, and apply the same redaction helper used by context packing.

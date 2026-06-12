@@ -1,5 +1,8 @@
 use crate::cli::ModelRequest;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+const HTTP_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ModelResponse {
@@ -82,12 +85,18 @@ impl Provider for OllamaProvider {
         });
 
         let endpoint = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
-        let mut req = ureq::post(&endpoint);
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(HTTP_TIMEOUT_SECS)))
+            .build()
+            .into();
+        let mut req = agent
+            .post(&endpoint)
+            .header("Content-Type", "application/json");
 
         if let Some(ref env_var) = self.auth_env {
             match std::env::var(env_var) {
                 Ok(val) => {
-                    req = req.set("Authorization", &format!("Bearer {val}"));
+                    req = req.header("Authorization", format!("Bearer {val}"));
                 }
                 Err(_) => {
                     return Err(format!(
@@ -98,20 +107,14 @@ impl Provider for OllamaProvider {
             }
         }
 
-        let payload_str = serde_json::to_string(&payload)
-            .map_err(|e| format!("failed to serialize Ollama payload: {e}"))?;
-
-        let response = req
-            .set("Content-Type", "application/json")
-            .send_string(&payload_str)
+        let mut response = req
+            .send_json(&payload)
             .map_err(|e| format!("HTTP request to Ollama failed: {e}"))?;
 
-        let resp_str = response
-            .into_string()
-            .map_err(|e| format!("failed to read Ollama response string: {e}"))?;
-
-        let resp_body: serde_json::Value = serde_json::from_str(&resp_str)
-            .map_err(|e| format!("failed to parse Ollama JSON response: {e}"))?;
+        let resp_body = response
+            .body_mut()
+            .read_json::<serde_json::Value>()
+            .map_err(|e| format!("failed to read Ollama JSON response: {e}"))?;
 
         let assistant_content = resp_body
             .get("message")

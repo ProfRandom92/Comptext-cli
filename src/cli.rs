@@ -73,7 +73,16 @@ enum Command {
     Help,
     Version,
     Doctor,
+    Init {
+        out_path: Option<String>,
+        dry_run: bool,
+    },
     ProvidersList,
+    ArtifactsList,
+    ArtifactsRead {
+        path: String,
+        max_bytes: usize,
+    },
     ContextInspect,
     ContextPack {
         task: String,
@@ -91,7 +100,15 @@ enum Command {
         proposal_path: Option<String>,
         yes: bool,
     },
-    Validate,
+    Validate {
+        run: bool,
+    },
+    AgentList,
+    AgentRun {
+        kind: String,
+        task: String,
+        allow_external: bool,
+    },
     Benchmark {
         provider: Option<String>,
         task: String,
@@ -168,6 +185,21 @@ pub struct Proposal {
     pub risk_notes: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AgentRunArtifact {
+    pub schema_version: String,
+    pub task: String,
+    pub agent_kind: String,
+    pub external_execution: bool,
+    pub dry_run: bool,
+    pub context_pack: String,
+    pub network_default: String,
+    pub proposal_required: bool,
+    pub validation_commands: Vec<String>,
+    pub timestamp: String,
+    pub safety_flags: HashMap<String, bool>,
+}
+
 pub fn run<I>(args: I) -> i32
 where
     I: IntoIterator,
@@ -176,16 +208,20 @@ where
     let argv: Vec<String> = args.into_iter().map(Into::into).collect();
 
     let mut config_path = None;
+    let mut json_output = false;
     let mut cleaned_argv = Vec::new();
     let mut i = 0;
     while i < argv.len() {
         if argv[i] == "--config" {
             if i + 1 >= argv.len() {
-                eprintln!("error: missing path after --config");
+                emit_error(json_output, "missing path after --config");
                 return 2;
             }
             config_path = Some(argv[i + 1].clone());
             i += 2;
+        } else if argv[i] == "--json" {
+            json_output = true;
+            i += 1;
         } else {
             cleaned_argv.push(argv[i].clone());
             i += 1;
@@ -195,7 +231,7 @@ where
     let config = match load_config(config_path.as_deref()) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("error loading config: {e}");
+            emit_error(json_output, &format!("error loading config: {e}"));
             return 1;
         }
     };
@@ -206,28 +242,65 @@ where
             0
         }
         Ok(Command::Version) => {
-            println!("ctxt {VERSION}");
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "ok": true,
+                        "command": "version",
+                        "binary": "ctxt",
+                        "version": VERSION
+                    })
+                );
+            } else {
+                println!("ctxt {VERSION}");
+            }
             0
         }
         Ok(Command::Doctor) => {
-            print_doctor(&config);
+            print_doctor(&config, json_output);
             0
+        }
+        Ok(Command::Init { out_path, dry_run }) => {
+            match handle_init(out_path.as_deref(), dry_run, json_output) {
+                Ok(_) => 0,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
         }
         Ok(Command::ProvidersList) => {
-            print_providers(&config);
+            print_providers(&config, json_output);
             0
         }
-        Ok(Command::ContextInspect) => match handle_context_inspect() {
+        Ok(Command::ArtifactsList) => match handle_artifacts_list(json_output) {
             Ok(_) => 0,
             Err(e) => {
-                eprintln!("error: {e}");
+                emit_error(json_output, &e);
                 1
             }
         },
-        Ok(Command::ContextPack { task }) => match handle_context_pack(&task) {
+        Ok(Command::ArtifactsRead { path, max_bytes }) => {
+            match handle_artifacts_read(&path, max_bytes, json_output) {
+                Ok(_) => 0,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
+        }
+        Ok(Command::ContextInspect) => match handle_context_inspect(json_output) {
             Ok(_) => 0,
             Err(e) => {
-                eprintln!("error: {e}");
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::ContextPack { task }) => match handle_context_pack(&task, json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
                 1
             }
         },
@@ -235,35 +308,53 @@ where
             provider,
             dry_run,
             prompt,
-        }) => match handle_ask(provider.as_deref(), dry_run, &prompt, &config) {
+        }) => match handle_ask(provider.as_deref(), dry_run, &prompt, &config, json_output) {
             Ok(_) => 0,
             Err(e) => {
-                eprintln!("error: {e}");
+                emit_error(json_output, &e);
                 1
             }
         },
         Ok(Command::Propose { provider, task }) => {
-            match handle_propose(provider.as_deref(), &task, &config) {
+            match handle_propose(provider.as_deref(), &task, &config, json_output) {
                 Ok(_) => 0,
                 Err(e) => {
-                    eprintln!("error: {e}");
+                    emit_error(json_output, &e);
                     1
                 }
             }
         }
         Ok(Command::Apply { proposal_path, yes }) => {
-            match handle_apply(proposal_path.as_deref(), yes) {
+            match handle_apply(proposal_path.as_deref(), yes, json_output) {
                 Ok(_) => 0,
                 Err(e) => {
-                    eprintln!("error: {e}");
+                    emit_error(json_output, &e);
                     1
                 }
             }
         }
-        Ok(Command::Validate) => match handle_validate() {
+        Ok(Command::Validate { run }) => match handle_validate(run, json_output) {
+            Ok(code) => code,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::AgentList) => match handle_agent_list(json_output) {
             Ok(_) => 0,
             Err(e) => {
-                eprintln!("error: {e}");
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::AgentRun {
+            kind,
+            task,
+            allow_external,
+        }) => match handle_agent_run(&kind, &task, allow_external, &config, json_output) {
+            Ok(code) => code,
+            Err(e) => {
+                emit_error(json_output, &e);
                 1
             }
         },
@@ -314,10 +405,28 @@ where
             }
         }
         Err(message) => {
-            eprintln!("error: {message}");
-            eprintln!("run `ctxt --help` for usage");
+            emit_error(json_output, &message);
+            if !json_output {
+                eprintln!("run `ctxt --help` for usage");
+            }
             2
         }
+    }
+}
+
+fn emit_error(json_output: bool, message: &str) {
+    if json_output {
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "ok": false,
+                "error": {
+                    "message": message
+                }
+            })
+        );
+    } else {
+        eprintln!("error: {message}");
     }
 }
 
@@ -346,6 +455,38 @@ fn parse(argv: &[String]) -> Result<Command, String> {
             }
             Ok(Command::Doctor)
         }
+        "init" => {
+            let mut out_path = None;
+            let mut dry_run = false;
+            let mut i = 1;
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--dry-run" => {
+                        dry_run = true;
+                        i += 1;
+                    }
+                    "--out" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing path after --out".to_string());
+                        }
+                        if out_path.is_some() {
+                            return Err("duplicate --out for 'init'".to_string());
+                        }
+                        out_path = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!("unexpected argument '{other}' for 'init'"));
+                    }
+                }
+            }
+            if !dry_run && out_path.is_none() {
+                return Err(
+                    "init requires --dry-run or --out <path>; refusing implicit writes".to_string(),
+                );
+            }
+            Ok(Command::Init { out_path, dry_run })
+        }
         "providers" => {
             if argv.len() < 2 {
                 return Err(
@@ -365,6 +506,62 @@ fn parse(argv: &[String]) -> Result<Command, String> {
                 ));
             }
             Ok(Command::ProvidersList)
+        }
+        "artifacts" => {
+            if argv.len() < 2 {
+                return Err(
+                    "missing subcommand for 'artifacts'. Usage: ctxt artifacts list | read <path>"
+                        .to_string(),
+                );
+            }
+            match argv[1].as_str() {
+                "list" => {
+                    if argv.len() > 2 {
+                        return Err(format!(
+                            "unexpected argument '{}' for 'artifacts list'",
+                            argv[2]
+                        ));
+                    }
+                    Ok(Command::ArtifactsList)
+                }
+                "read" => {
+                    if argv.len() < 3 {
+                        return Err(
+                            "missing path for 'artifacts read'. Usage: ctxt artifacts read <path>"
+                                .to_string(),
+                        );
+                    }
+                    let path = argv[2].clone();
+                    if path.starts_with('-') {
+                        return Err(format!("unexpected option '{path}' for 'artifacts read'"));
+                    }
+                    let mut max_bytes = 16 * 1024;
+                    let mut i = 3;
+                    while i < argv.len() {
+                        match argv[i].as_str() {
+                            "--max-bytes" => {
+                                if i + 1 >= argv.len() {
+                                    return Err("missing byte count after --max-bytes".to_string());
+                                }
+                                max_bytes = argv[i + 1].parse::<usize>().map_err(|_| {
+                                    format!("invalid --max-bytes value '{}'", argv[i + 1])
+                                })?;
+                                if max_bytes == 0 {
+                                    return Err("--max-bytes must be greater than zero".to_string());
+                                }
+                                i += 2;
+                            }
+                            other => {
+                                return Err(format!(
+                                    "unexpected argument '{other}' for 'artifacts read'"
+                                ));
+                            }
+                        }
+                    }
+                    Ok(Command::ArtifactsRead { path, max_bytes })
+                }
+                other => Err(format!("unsupported artifacts subcommand '{other}'")),
+            }
         }
         "context" => {
             if argv.len() < 2 {
@@ -511,10 +708,79 @@ fn parse(argv: &[String]) -> Result<Command, String> {
             Ok(Command::Apply { proposal_path, yes })
         }
         "validate" => {
-            if argv.len() > 1 {
-                return Err(format!("unexpected argument '{}' for 'validate'", argv[1]));
+            let mut run = false;
+            let mut i = 1;
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--run" => {
+                        run = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(format!("unexpected argument '{other}' for 'validate'"));
+                    }
+                }
             }
-            Ok(Command::Validate)
+            Ok(Command::Validate { run })
+        }
+        "agent" => {
+            if argv.len() < 2 {
+                return Err(
+                    "missing subcommand for 'agent'. Usage: ctxt agent list | run".to_string(),
+                );
+            }
+            match argv[1].as_str() {
+                "list" => {
+                    if argv.len() > 2 {
+                        return Err(format!(
+                            "unexpected argument '{}' for 'agent list'",
+                            argv[2]
+                        ));
+                    }
+                    Ok(Command::AgentList)
+                }
+                "run" => {
+                    let mut kind = None;
+                    let mut task = None;
+                    let mut allow_external = false;
+                    let mut i = 2;
+                    while i < argv.len() {
+                        match argv[i].as_str() {
+                            "--kind" => {
+                                if i + 1 >= argv.len() {
+                                    return Err("missing agent kind after --kind".to_string());
+                                }
+                                kind = Some(argv[i + 1].clone());
+                                i += 2;
+                            }
+                            "--task" => {
+                                if i + 1 >= argv.len() {
+                                    return Err("missing task after --task".to_string());
+                                }
+                                task = Some(argv[i + 1].clone());
+                                i += 2;
+                            }
+                            "--allow-external" => {
+                                allow_external = true;
+                                i += 1;
+                            }
+                            other => {
+                                return Err(format!(
+                                    "unexpected argument '{other}' for 'agent run'"
+                                ));
+                            }
+                        }
+                    }
+                    Ok(Command::AgentRun {
+                        kind: kind
+                            .ok_or_else(|| "missing required --kind for 'agent run'".to_string())?,
+                        task: task
+                            .ok_or_else(|| "missing required --task for 'agent run'".to_string())?,
+                        allow_external,
+                    })
+                }
+                other => Err(format!("unsupported agent subcommand '{other}'")),
+            }
         }
         "verify" => {
             if argv.len() < 2 {
@@ -715,11 +981,14 @@ fn print_help() {
         "CompText CLI / ctxt {VERSION}\n\
 \n\
 USAGE:\n\
-    ctxt <COMMAND>\n\
+    ctxt [--json] [--config <path>] <COMMAND>\n\
 \n\
 COMMANDS:\n\
     doctor              Run local readiness checks\n\
+    init                Create or preview a local config file\n\
     providers list      List configured provider kinds\n\
+    artifacts list      List local runtime/proposal/report artifacts\n\
+    artifacts read      Read a bounded local artifact excerpt\n\
     version             Print version\n\
     context inspect     Inspect the workspace context\n\
     context pack        Pack deterministic Context Pack\n\
@@ -727,6 +996,7 @@ COMMANDS:\n\
     propose             Generate proposals for target task (dry-run mode)\n\
     apply               Apply proposed changes and validate\n\
     validate            Validate the repository state against proposal\n\
+    agent               List or prepare gated local/external agent runs\n\
     benchmark           Run deterministic local model/context benchmarks\n\
     verify              Verify or generate local provenance manifest\n\
     state               Manage and verify agent state contracts\n\
@@ -736,22 +1006,166 @@ SAFETY DEFAULTS:\n\
     network_default=deny\n\
     dry_run_before_network=true\n\
     proposal_before_apply=true\n\
-    secrets_redaction=true"
+    secrets_redaction=true\n\
+\n\
+JSON:\n\
+    --json              Emit stable JSON for local operator commands and shell errors"
     );
 }
 
-fn print_doctor(config: &Config) {
-    println!("CompText doctor");
-    println!("status: ok");
-    println!("network_default: {}", config.policy.network_default);
-    println!("provider_default: {}", config.defaults.provider);
-    println!("proposal_required: {}", config.defaults.proposal_required);
-    println!("secrets_policy: redact-before-artifact");
+fn safe_relative_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let normalized = path.replace('\\', "/");
+    if normalized.is_empty()
+        || normalized.contains("..")
+        || normalized.starts_with('/')
+        || std::path::Path::new(path).is_absolute()
+        || is_sensitive_context_path(&normalized)
+    {
+        return Err(format!("unsafe relative path rejected: '{path}'"));
+    }
+    Ok(std::path::PathBuf::from(normalized))
 }
 
-fn print_providers(config: &Config) {
+fn handle_init(out_path: Option<&str>, dry_run: bool, json_output: bool) -> Result<(), String> {
+    let source = "comptext.example.toml";
+    let target = out_path.unwrap_or("comptext.toml");
+    let target_path = safe_relative_path(target)?;
+
+    if !target_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .ends_with(".toml")
+    {
+        return Err("init output path must end with .toml".to_string());
+    }
+
+    let template = std::fs::read_to_string(source)
+        .map_err(|e| format!("failed to read init template '{source}': {e}"))?;
+
+    if dry_run {
+        if json_output {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "command": "init",
+                    "dry_run": true,
+                    "source": source,
+                    "target": normalize_path(&target_path),
+                    "would_write_bytes": template.len(),
+                    "network": "offline-only"
+                })
+            );
+        } else {
+            println!("Init dry-run successful.");
+            println!("Source: {source}");
+            println!("Target: {}", normalize_path(&target_path));
+            println!("Bytes: {}", template.len());
+        }
+        return Ok(());
+    }
+
+    if target_path.exists() {
+        return Err(format!(
+            "refusing to overwrite existing config '{}'",
+            target_path.display()
+        ));
+    }
+
+    std::fs::write(&target_path, template).map_err(|e| {
+        format!(
+            "failed to write init config '{}': {e}",
+            target_path.display()
+        )
+    })?;
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "init",
+                "dry_run": false,
+                "source": source,
+                "target": normalize_path(&target_path),
+                "network": "offline-only"
+            })
+        );
+    } else {
+        println!("Config written to {}", normalize_path(&target_path));
+    }
+    Ok(())
+}
+
+fn print_doctor(config: &Config, json_output: bool) {
+    if json_output {
+        let default_provider = config.providers.get(&config.defaults.provider);
+        let default_provider_network = default_provider
+            .and_then(|profile| profile.network)
+            .unwrap_or(false);
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "doctor",
+                "status": "ok",
+                "binary": "ctxt",
+                "version": VERSION,
+                "network_default": config.policy.network_default,
+                "provider_default": config.defaults.provider,
+                "provider_default_network": default_provider_network,
+                "proposal_required": config.defaults.proposal_required,
+                "dry_run_default": config.defaults.dry_run_default,
+                "secrets_policy": "redact-before-artifact",
+                "auth": {
+                    "required": false,
+                    "source": "missing",
+                    "note": "offline dummy provider does not require auth"
+                }
+            })
+        );
+    } else {
+        println!("CompText doctor");
+        println!("status: ok");
+        println!("network_default: {}", config.policy.network_default);
+        println!("provider_default: {}", config.defaults.provider);
+        println!("proposal_required: {}", config.defaults.proposal_required);
+        println!("secrets_policy: redact-before-artifact");
+    }
+}
+
+fn print_providers(config: &Config, json_output: bool) {
     let mut names: Vec<&String> = config.providers.keys().collect();
     names.sort();
+
+    if json_output {
+        let providers: Vec<serde_json::Value> = names
+            .iter()
+            .map(|name| {
+                let profile = &config.providers[*name];
+                let network = profile.network.unwrap_or(profile.kind != "dummy");
+                serde_json::json!({
+                    "name": name,
+                    "kind": profile.kind,
+                    "network": network,
+                    "auth": profile.auth,
+                    "auth_env": profile.auth_env,
+                    "model": profile.model,
+                    "model_suffix": profile.model_suffix
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "providers list",
+                "providers": providers
+            })
+        );
+        return;
+    }
 
     for name in names {
         let profile = &config.providers[name];
@@ -814,7 +1228,12 @@ fn collect_files(
             let path = entry.path();
             if path.is_dir() {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if name == ".git" || name == "target" || name == ".comptext" || name == "reports" {
+                if name == ".git"
+                    || name == "target"
+                    || name == ".comptext"
+                    || name == "reports"
+                    || name == "validation-target"
+                {
                     continue;
                 }
                 collect_files(&path, files)?;
@@ -832,6 +1251,143 @@ fn normalize_path(path: &std::path::Path) -> String {
         s = s[2..].to_string();
     }
     s.replace('\\', "/")
+}
+
+fn is_allowed_artifact_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    (normalized.starts_with(".comptext/")
+        || normalized.starts_with("proposals/")
+        || normalized.starts_with("reports/"))
+        && !is_sensitive_context_path(&normalized)
+        && !normalized.contains("..")
+}
+
+fn artifact_kind(path: &str) -> &'static str {
+    if path.starts_with(".comptext/") {
+        "runtime"
+    } else if path.starts_with("proposals/") {
+        "proposal"
+    } else if path.starts_with("reports/") {
+        "report"
+    } else {
+        "unknown"
+    }
+}
+
+fn collect_artifacts() -> Result<Vec<serde_json::Value>, String> {
+    let mut artifacts = Vec::new();
+    for root in [".comptext", "proposals", "reports"] {
+        let root_path = std::path::Path::new(root);
+        if !root_path.exists() {
+            continue;
+        }
+        let mut files = Vec::new();
+        collect_files(root_path, &mut files)
+            .map_err(|e| format!("failed to collect artifacts under '{root}': {e}"))?;
+        for file in files {
+            let rel_path = normalize_path(&file);
+            if !is_allowed_artifact_path(&rel_path) {
+                continue;
+            }
+            let metadata = std::fs::metadata(&file)
+                .map_err(|e| format!("failed to stat artifact '{rel_path}': {e}"))?;
+            artifacts.push(serde_json::json!({
+                "path": rel_path,
+                "kind": artifact_kind(&rel_path),
+                "bytes": metadata.len()
+            }));
+        }
+    }
+    artifacts.sort_by(|a, b| {
+        a["path"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["path"].as_str().unwrap_or(""))
+    });
+    Ok(artifacts)
+}
+
+fn handle_artifacts_list(json_output: bool) -> Result<(), String> {
+    let artifacts = collect_artifacts()?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "artifacts list",
+                "artifacts": artifacts
+            })
+        );
+    } else {
+        for artifact in artifacts {
+            println!(
+                "{}\tkind={}\tbytes={}",
+                artifact["path"].as_str().unwrap_or(""),
+                artifact["kind"].as_str().unwrap_or("unknown"),
+                artifact["bytes"].as_u64().unwrap_or(0)
+            );
+        }
+    }
+    Ok(())
+}
+
+fn truncate_at_byte_limit(content: &str, max_bytes: usize) -> (String, bool) {
+    if content.len() <= max_bytes {
+        return (content.to_string(), false);
+    }
+
+    let end = content
+        .char_indices()
+        .map(|(idx, _)| idx)
+        .take_while(|idx| *idx <= max_bytes)
+        .last()
+        .unwrap_or(0);
+
+    (content[..end].to_string(), true)
+}
+
+fn handle_artifacts_read(path: &str, max_bytes: usize, json_output: bool) -> Result<(), String> {
+    let safe_path = safe_relative_path(path)?;
+    let normalized = normalize_path(&safe_path);
+    if !is_allowed_artifact_path(&normalized) {
+        return Err(format!(
+            "artifact path '{path}' is outside allowed artifact roots"
+        ));
+    }
+    if !safe_path.exists() {
+        return Err(format!("artifact not found: '{normalized}'"));
+    }
+    let metadata = std::fs::metadata(&safe_path)
+        .map_err(|e| format!("failed to stat artifact '{normalized}': {e}"))?;
+    if !metadata.is_file() {
+        return Err(format!("artifact path is not a file: '{normalized}'"));
+    }
+    let content = std::fs::read_to_string(&safe_path)
+        .map_err(|e| format!("failed to read artifact '{normalized}' as UTF-8 text: {e}"))?;
+    let redacted = redact_secrets(&content);
+    let (excerpt, truncated) = truncate_at_byte_limit(&redacted, max_bytes);
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "artifacts read",
+                "path": normalized,
+                "kind": artifact_kind(&normalized),
+                "bytes": metadata.len(),
+                "max_bytes": max_bytes,
+                "truncated": truncated,
+                "content": excerpt
+            })
+        );
+    } else {
+        print!("{excerpt}");
+        if truncated {
+            println!("\n[truncated at {max_bytes} bytes]");
+        }
+    }
+    Ok(())
 }
 
 fn is_sensitive_context_path(path: &str) -> bool {
@@ -963,8 +1519,25 @@ fn build_context_pack(task: &str) -> Result<ContextPack, String> {
     })
 }
 
-fn handle_context_inspect() -> Result<(), String> {
+fn handle_context_inspect(json_output: bool) -> Result<(), String> {
     let cp = build_context_pack("inspect")?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "context inspect",
+                "schema_version": cp.schema_version,
+                "included_file_count": cp.included_files.len(),
+                "included_files": cp.included_files,
+                "excluded_files": cp.excluded_files,
+                "rendered_context_chars": cp.rendered_context.len(),
+                "policy": cp.policy
+            })
+        );
+        return Ok(());
+    }
+
     println!("Context Pack Inspection:");
     println!("Schema Version: {}", cp.schema_version);
     println!("Total included files: {}", cp.included_files.len());
@@ -983,7 +1556,7 @@ fn handle_context_inspect() -> Result<(), String> {
     Ok(())
 }
 
-fn handle_context_pack(task: &str) -> Result<(), String> {
+fn handle_context_pack(task: &str, json_output: bool) -> Result<(), String> {
     let cp = build_context_pack(task)?;
     std::fs::create_dir_all(".comptext")
         .map_err(|e| format!("failed to create .comptext directory: {e}"))?;
@@ -994,7 +1567,54 @@ fn handle_context_pack(task: &str) -> Result<(), String> {
     std::fs::write(".comptext/context_pack.latest.json", json_content)
         .map_err(|e| format!("failed to write context pack: {e}"))?;
 
-    println!("Context Pack written to .comptext/context_pack.latest.json");
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "context pack",
+                "path": ".comptext/context_pack.latest.json",
+                "task": task,
+                "included_file_count": cp.included_files.len(),
+                "rendered_context_chars": cp.rendered_context.len()
+            })
+        );
+    } else {
+        println!("Context Pack written to .comptext/context_pack.latest.json");
+    }
+    Ok(())
+}
+
+fn emit_model_response(
+    provider_label: &str,
+    response: &crate::provider::ModelResponse,
+    included_file_count: usize,
+    json_output: bool,
+) -> Result<(), String> {
+    let resp_json = serde_json::to_string_pretty(response)
+        .map_err(|e| format!("failed to serialize model response: {e}"))?;
+
+    std::fs::write(".comptext/model_response.latest.json", resp_json)
+        .map_err(|e| format!("failed to write model response: {e}"))?;
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "ask",
+                "dry_run": false,
+                "provider": response.provider,
+                "model": response.model,
+                "response_artifact": ".comptext/model_response.latest.json",
+                "content": response.content,
+                "included_file_count": included_file_count
+            })
+        );
+    } else {
+        println!("Response from {provider_label} provider:");
+        println!("{}", response.content);
+    }
     Ok(())
 }
 
@@ -1003,6 +1623,7 @@ fn handle_ask(
     dry_run: bool,
     prompt: &str,
     config: &Config,
+    json_output: bool,
 ) -> Result<(), String> {
     let resolved_provider = provider.unwrap_or(config.defaults.provider.as_str());
 
@@ -1069,11 +1690,32 @@ fn handle_ask(
     }
 
     if resolved_dry_run {
-        println!("Dry-run successful.");
-        println!("Context Pack: .comptext/context_pack.latest.json");
-        println!("Model Request: .comptext/model_request.latest.json");
-        if profile.kind == "openai-compatible" {
-            println!("OpenAI Request: .comptext/openai_request.latest.json");
+        if json_output {
+            let mut artifacts = vec![
+                ".comptext/context_pack.latest.json",
+                ".comptext/model_request.latest.json",
+            ];
+            if profile.kind == "openai-compatible" {
+                artifacts.push(".comptext/openai_request.latest.json");
+            }
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "command": "ask",
+                    "dry_run": true,
+                    "provider": resolved_provider,
+                    "artifacts": artifacts,
+                    "included_file_count": cp.included_files.len()
+                })
+            );
+        } else {
+            println!("Dry-run successful.");
+            println!("Context Pack: .comptext/context_pack.latest.json");
+            println!("Model Request: .comptext/model_request.latest.json");
+            if profile.kind == "openai-compatible" {
+                println!("OpenAI Request: .comptext/openai_request.latest.json");
+            }
         }
         return Ok(());
     }
@@ -1084,15 +1726,7 @@ fn handle_ask(
             let prov = DummyProvider;
             let response = prov.execute(&request)?;
 
-            let resp_json = serde_json::to_string_pretty(&response)
-                .map_err(|e| format!("failed to serialize model response: {e}"))?;
-
-            std::fs::write(".comptext/model_response.latest.json", resp_json)
-                .map_err(|e| format!("failed to write model response: {e}"))?;
-
-            println!("Response from {} provider:", prov.name());
-            println!("{}", response.content);
-            Ok(())
+            emit_model_response(prov.name(), &response, cp.included_files.len(), json_output)
         }
         "ollama" => {
             ensure_provider_network_allowed(config, profile, resolved_provider)?;
@@ -1114,15 +1748,7 @@ fn handle_ask(
 
             let response = prov.execute(&request)?;
 
-            let resp_json = serde_json::to_string_pretty(&response)
-                .map_err(|e| format!("failed to serialize model response: {e}"))?;
-
-            std::fs::write(".comptext/model_response.latest.json", resp_json)
-                .map_err(|e| format!("failed to write model response: {e}"))?;
-
-            println!("Response from {} provider:", prov.name());
-            println!("{}", response.content);
-            Ok(())
+            emit_model_response(prov.name(), &response, cp.included_files.len(), json_output)
         }
         "openai-compatible" => {
             use crate::provider::{OpenaiProvider, Provider};
@@ -1144,21 +1770,18 @@ fn handle_ask(
 
             let response = prov.execute(&request)?;
 
-            let resp_json = serde_json::to_string_pretty(&response)
-                .map_err(|e| format!("failed to serialize model response: {e}"))?;
-
-            std::fs::write(".comptext/model_response.latest.json", resp_json)
-                .map_err(|e| format!("failed to write model response: {e}"))?;
-
-            println!("Response from {} provider:", prov.name());
-            println!("{}", response.content);
-            Ok(())
+            emit_model_response(prov.name(), &response, cp.included_files.len(), json_output)
         }
         other => Err(format!("unsupported provider kind '{other}'")),
     }
 }
 
-fn handle_propose(provider_name: Option<&str>, task: &str, config: &Config) -> Result<(), String> {
+fn handle_propose(
+    provider_name: Option<&str>,
+    task: &str,
+    config: &Config,
+    json_output: bool,
+) -> Result<(), String> {
     let resolved_provider = provider_name.unwrap_or(config.defaults.provider.as_str());
 
     let profile = config.providers.get(resolved_provider).ok_or_else(|| {
@@ -1301,9 +1924,32 @@ fn handle_propose(provider_name: Option<&str>, task: &str, config: &Config) -> R
     std::fs::write("proposals/proposal.latest.json", &prop_json)
         .map_err(|e| format!("failed to write proposals/proposal.latest.json: {e}"))?;
 
-    println!("Proposal generated successfully.");
-    println!("Proposal file: {filename}");
-    println!("Latest reference: proposals/proposal.latest.json");
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "propose",
+                "provider": resolved_provider,
+                "proposal_file": filename,
+                "latest_reference": "proposals/proposal.latest.json",
+                "task": proposal.task,
+                "affected_files": proposal.affected_files,
+                "operation_count": proposal.operations.len(),
+                "validation_commands": proposal.validation_commands,
+                "artifacts": [
+                    ".comptext/context_pack.latest.json",
+                    ".comptext/model_request.latest.json",
+                    ".comptext/model_response.latest.json",
+                    "proposals/proposal.latest.json"
+                ]
+            })
+        );
+    } else {
+        println!("Proposal generated successfully.");
+        println!("Proposal file: {filename}");
+        println!("Latest reference: proposals/proposal.latest.json");
+    }
     Ok(())
 }
 
@@ -1388,7 +2034,7 @@ fn apply_simulated_patch(path: &str, detail: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_apply(proposal_path: Option<&str>, yes: bool) -> Result<(), String> {
+fn handle_apply(proposal_path: Option<&str>, yes: bool, json_output: bool) -> Result<(), String> {
     let path = proposal_path.unwrap_or("proposals/proposal.latest.json");
     if !std::path::Path::new(path).exists() {
         return Err(format!("Proposal file not found at '{path}'"));
@@ -1398,12 +2044,14 @@ fn handle_apply(proposal_path: Option<&str>, yes: bool) -> Result<(), String> {
     let proposal: Proposal = serde_json::from_str(&content)
         .map_err(|e| format!("failed to parse proposal JSON: {e}"))?;
 
-    println!("Applying Proposal:");
-    println!("  Task: {}", proposal.task);
-    println!("  Rationale: {}", proposal.rationale);
-    println!("  Affected files:");
-    for file in &proposal.affected_files {
-        println!("    - {file}");
+    if !json_output {
+        println!("Applying Proposal:");
+        println!("  Task: {}", proposal.task);
+        println!("  Rationale: {}", proposal.rationale);
+        println!("  Affected files:");
+        for file in &proposal.affected_files {
+            println!("    - {file}");
+        }
     }
 
     for op in &proposal.operations {
@@ -1430,7 +2078,9 @@ fn handle_apply(proposal_path: Option<&str>, yes: bool) -> Result<(), String> {
         }
     }
 
-    println!("Applying operations...");
+    if !json_output {
+        println!("Applying operations...");
+    }
     for op in &proposal.operations {
         if op.op == "patch" {
             apply_simulated_patch(&op.path, &op.detail)?;
@@ -1439,9 +2089,13 @@ fn handle_apply(proposal_path: Option<&str>, yes: bool) -> Result<(), String> {
         }
     }
 
-    println!("Running validation commands...");
+    if !json_output {
+        println!("Running validation commands...");
+    }
     for cmd_str in &proposal.validation_commands {
-        println!("Executing: {}", cmd_str);
+        if !json_output {
+            println!("Executing: {}", cmd_str);
+        }
         let parts: Vec<&str> = cmd_str.split_whitespace().collect();
         if parts.is_empty() {
             continue;
@@ -1460,17 +2114,284 @@ fn handle_apply(proposal_path: Option<&str>, yes: bool) -> Result<(), String> {
         }
     }
 
-    println!("Proposal applied and validated successfully.");
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "apply",
+                "proposal_file": path,
+                "task": proposal.task,
+                "affected_files": proposal.affected_files,
+                "operation_count": proposal.operations.len(),
+                "validation_commands": proposal.validation_commands
+            })
+        );
+    } else {
+        println!("Proposal applied and validated successfully.");
+    }
     Ok(())
 }
 
-fn handle_validate() -> Result<(), String> {
-    println!("Standard local validation commands:");
-    println!("cargo fmt --all --check");
-    println!("cargo check");
-    println!("cargo test");
-    println!("cargo clippy -- -D warnings");
+fn validation_commands() -> [&'static str; 4] {
+    [
+        "cargo fmt --all --check",
+        "cargo check",
+        "cargo test",
+        "cargo clippy -- -D warnings",
+    ]
+}
+
+fn validation_commands_for_run() -> Vec<String> {
+    match std::env::var("CTXT_VALIDATE_COMMANDS_FOR_TEST") {
+        Ok(value) if !value.trim().is_empty() => value
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => validation_commands()
+            .iter()
+            .map(|command| (*command).to_string())
+            .collect(),
+    }
+}
+
+fn command_excerpt(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let redacted = redact_secrets(&text);
+    let (excerpt, _) = truncate_at_byte_limit(&redacted, 4096);
+    excerpt
+}
+
+fn run_validation_step(cmd_str: &str) -> Result<serde_json::Value, String> {
+    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err("empty validation command".to_string());
+    }
+
+    let output = std::process::Command::new(parts[0])
+        .args(&parts[1..])
+        .env("CTXT_VALIDATE_INNER", "1")
+        .env("CARGO_TARGET_DIR", ".comptext/validation-target")
+        .output()
+        .map_err(|e| format!("failed to run validation command '{cmd_str}': {e}"))?;
+
+    Ok(serde_json::json!({
+        "cmd": cmd_str,
+        "ok": output.status.success(),
+        "exit_code": output.status.code(),
+        "stdout_excerpt": command_excerpt(&output.stdout),
+        "stderr_excerpt": command_excerpt(&output.stderr)
+    }))
+}
+
+fn handle_validate(run: bool, json_output: bool) -> Result<i32, String> {
+    let commands = validation_commands();
+
+    if run {
+        let commands = validation_commands_for_run();
+        let mut steps = Vec::new();
+        let mut failed_step = None;
+
+        for command in &commands {
+            let step = run_validation_step(command)?;
+            let ok = step["ok"].as_bool().unwrap_or(false);
+            steps.push(step);
+            if !ok {
+                failed_step = Some(command.clone());
+                break;
+            }
+        }
+
+        let ok = failed_step.is_none();
+        let mut payload = serde_json::json!({
+            "command": "validate",
+            "run": true,
+            "ok": ok,
+            "steps": steps
+        });
+        if let Some(step) = failed_step {
+            payload["failed_step"] = serde_json::json!(step);
+        }
+        println!("{payload}");
+        return Ok(if ok { 0 } else { 1 });
+    }
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "command": "validate",
+                "run": false,
+                "validation_commands": commands
+            })
+        );
+    } else {
+        println!("Standard local validation commands:");
+        for command in commands {
+            println!("{command}");
+        }
+    }
+    Ok(0)
+}
+
+fn handle_agent_list(_json_output: bool) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::json!({
+            "command": "agent list",
+            "ok": true,
+            "agents": [
+                {
+                    "kind": "dummy",
+                    "external": false,
+                    "network": false,
+                    "status": "available"
+                },
+                {
+                    "kind": "codex",
+                    "external": true,
+                    "network": false,
+                    "status": "dry-run-only"
+                },
+                {
+                    "kind": "antigravity",
+                    "external": true,
+                    "network": false,
+                    "status": "dry-run-only"
+                }
+            ]
+        })
+    );
     Ok(())
+}
+
+fn agent_would_run(kind: &str, task: &str) -> String {
+    match kind {
+        "dummy" => format!("ctxt ask --provider dummy {:?}", task),
+        "codex" => format!("codex --task {:?}", task),
+        "antigravity" => format!("antigravity --task {:?}", task),
+        _ => String::new(),
+    }
+}
+
+fn unix_timestamp_string() -> Result<String, String> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("system clock is before UNIX_EPOCH: {e}"))?
+        .as_secs();
+    Ok(secs.to_string())
+}
+
+fn write_agent_run_artifact(
+    kind: &str,
+    task: &str,
+    dry_run: bool,
+    allow_external: bool,
+    config: &Config,
+) -> Result<String, String> {
+    let cp = build_context_pack(task)?;
+    std::fs::create_dir_all(".comptext/runs/latest")
+        .map_err(|e| format!("failed to create run artifact directory: {e}"))?;
+
+    let cp_json = serde_json::to_string_pretty(&cp)
+        .map_err(|e| format!("failed to serialize context pack: {e}"))?;
+    std::fs::write(".comptext/context_pack.latest.json", cp_json)
+        .map_err(|e| format!("failed to write context pack: {e}"))?;
+
+    let mut safety_flags = HashMap::new();
+    safety_flags.insert("allow_external".to_string(), allow_external);
+    safety_flags.insert(
+        "apply_requires_approval".to_string(),
+        config.policy.apply_requires_confirmation,
+    );
+    safety_flags.insert("external_agent_invoked".to_string(), false);
+
+    let artifact = AgentRunArtifact {
+        schema_version: "0.1".to_string(),
+        task: task.to_string(),
+        agent_kind: kind.to_string(),
+        external_execution: false,
+        dry_run,
+        context_pack: ".comptext/context_pack.latest.json".to_string(),
+        network_default: config.policy.network_default.clone(),
+        proposal_required: config.defaults.proposal_required,
+        validation_commands: validation_commands()
+            .iter()
+            .map(|cmd| (*cmd).to_string())
+            .collect(),
+        timestamp: unix_timestamp_string()?,
+        safety_flags,
+    };
+
+    let artifact_json = serde_json::to_string_pretty(&artifact)
+        .map_err(|e| format!("failed to serialize agent run artifact: {e}"))?;
+    let artifact_path = ".comptext/runs/latest/run.json";
+    std::fs::write(artifact_path, artifact_json)
+        .map_err(|e| format!("failed to write agent run artifact: {e}"))?;
+    Ok(artifact_path.to_string())
+}
+
+fn handle_agent_run(
+    kind: &str,
+    task: &str,
+    allow_external: bool,
+    config: &Config,
+    _json_output: bool,
+) -> Result<i32, String> {
+    if !matches!(kind, "dummy" | "codex" | "antigravity") {
+        return Err(format!("unsupported agent kind '{kind}'"));
+    }
+
+    let dry_run = match kind {
+        "dummy" => false,
+        "codex" | "antigravity" => !allow_external,
+        _ => unreachable!(),
+    };
+    let artifact_path = write_agent_run_artifact(kind, task, dry_run, allow_external, config)?;
+    let would_run = agent_would_run(kind, task);
+    let safety = serde_json::json!({
+        "network_default": config.policy.network_default,
+        "proposal_required": config.defaults.proposal_required,
+        "apply_requires_approval": config.policy.apply_requires_confirmation
+    });
+
+    if allow_external && matches!(kind, "codex" | "antigravity") {
+        println!(
+            "{}",
+            serde_json::json!({
+                "command": "agent run",
+                "kind": kind,
+                "task": task,
+                "external_execution": false,
+                "dry_run": false,
+                "ok": false,
+                "status": "not-implemented",
+                "would_run": would_run,
+                "run_artifact": artifact_path,
+                "safety": safety
+            })
+        );
+        return Ok(1);
+    }
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "command": "agent run",
+            "kind": kind,
+            "task": task,
+            "external_execution": false,
+            "dry_run": dry_run,
+            "ok": true,
+            "would_run": would_run,
+            "run_artifact": artifact_path,
+            "safety": safety
+        })
+    );
+    Ok(0)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -2290,11 +3211,53 @@ mod tests {
     }
 
     #[test]
+    fn parses_init() {
+        assert_eq!(
+            parse(&s(&["init", "--dry-run"])),
+            Ok(Command::Init {
+                out_path: None,
+                dry_run: true
+            })
+        );
+        assert_eq!(
+            parse(&s(&["init", "--out", "comptext.local.toml"])),
+            Ok(Command::Init {
+                out_path: Some("comptext.local.toml".to_string()),
+                dry_run: false
+            })
+        );
+        assert!(parse(&s(&["init"])).is_err());
+    }
+
+    #[test]
     fn parses_providers_list() {
         assert_eq!(
             parse(&s(&["providers", "list"])),
             Ok(Command::ProvidersList)
         );
+    }
+
+    #[test]
+    fn parses_artifacts() {
+        assert_eq!(
+            parse(&s(&["artifacts", "list"])),
+            Ok(Command::ArtifactsList)
+        );
+        assert_eq!(
+            parse(&s(&[
+                "artifacts",
+                "read",
+                ".comptext/context_pack.latest.json",
+                "--max-bytes",
+                "256"
+            ])),
+            Ok(Command::ArtifactsRead {
+                path: ".comptext/context_pack.latest.json".to_string(),
+                max_bytes: 256
+            })
+        );
+        assert!(parse(&s(&["artifacts", "read"])).is_err());
+        assert!(parse(&s(&["artifacts", "read", ".env"])).is_ok());
     }
 
     #[test]
@@ -2411,7 +3374,51 @@ mod tests {
 
     #[test]
     fn parses_validate() {
-        assert_eq!(parse(&s(&["validate"])), Ok(Command::Validate));
+        assert_eq!(
+            parse(&s(&["validate"])),
+            Ok(Command::Validate { run: false })
+        );
+        assert_eq!(
+            parse(&s(&["validate", "--run"])),
+            Ok(Command::Validate { run: true })
+        );
+    }
+
+    #[test]
+    fn parses_agent_commands() {
+        assert_eq!(parse(&s(&["agent", "list"])), Ok(Command::AgentList));
+        assert_eq!(
+            parse(&s(&[
+                "agent",
+                "run",
+                "--kind",
+                "codex",
+                "--task",
+                "Explain this repo"
+            ])),
+            Ok(Command::AgentRun {
+                kind: "codex".to_string(),
+                task: "Explain this repo".to_string(),
+                allow_external: false
+            })
+        );
+        assert_eq!(
+            parse(&s(&[
+                "agent",
+                "run",
+                "--kind",
+                "antigravity",
+                "--task",
+                "Explain this repo",
+                "--allow-external"
+            ])),
+            Ok(Command::AgentRun {
+                kind: "antigravity".to_string(),
+                task: "Explain this repo".to_string(),
+                allow_external: true
+            })
+        );
+        assert!(parse(&s(&["agent", "run", "--kind", "dummy"])).is_err());
     }
 
     #[test]
@@ -2597,8 +3604,8 @@ mod tests {
 
     #[test]
     fn test_validate_command() {
-        let res = handle_validate();
-        assert!(res.is_ok());
+        let res = handle_validate(false, false);
+        assert_eq!(res, Ok(0));
     }
 
     #[test]
