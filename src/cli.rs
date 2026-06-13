@@ -106,6 +106,7 @@ enum Command {
     Capabilities,
     Schema,
     SelfReport,
+    SubagentsList,
     RunsList,
     RunsRead {
         id: String,
@@ -384,6 +385,13 @@ where
             }
         },
         Ok(Command::SelfReport) => match handle_self_report(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::SubagentsList) => match handle_subagents_list(json_output) {
             Ok(_) => 0,
             Err(e) => {
                 emit_error(json_output, &e);
@@ -852,6 +860,32 @@ fn parse_self_command(argv: &[String]) -> Result<Command, String> {
     Ok(Command::SelfReport)
 }
 
+fn parse_subagents_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err("missing subcommand for 'subagents'. Usage: ctxt subagents list".to_string());
+    }
+
+    match argv[1].as_str() {
+        "list" => {
+            if argv.len() > 2 {
+                return Err(format!(
+                    "unexpected argument '{}' for 'subagents list'",
+                    argv[2]
+                ));
+            }
+            Ok(Command::SubagentsList)
+        }
+        "run" | "execute" => Err(format!(
+            "unsupported subcommand '{}' for 'subagents': runtime execution is not supported",
+            argv[1]
+        )),
+        other => Err(format!(
+            "unsupported subcommand '{}' for 'subagents'",
+            other
+        )),
+    }
+}
+
 fn parse(argv: &[String]) -> Result<Command, String> {
     if argv.is_empty() {
         return Ok(Command::Help);
@@ -869,6 +903,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     }
     if first == "self" {
         return parse_self_command(argv);
+    }
+    if first == "subagents" {
+        return parse_subagents_command(argv);
     }
 
     match first.as_str() {
@@ -2708,7 +2745,8 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 {"phase": "4e", "name": "runtime self report", "status": "stable"},
                 {"phase": "4f", "name": "proposal artifact contract", "status": "stable"},
                 {"phase": "4g", "name": "proposal schema contracts", "status": "stable"},
-                {"phase": "4h", "name": "proposal capabilities", "status": "stable"}
+                {"phase": "4h", "name": "proposal capabilities", "status": "stable"},
+                {"phase": "5a", "name": "deterministic subagent role contract", "status": "stable"}
             ],
             "safety": {
                 "network_default": "deny",
@@ -2726,6 +2764,9 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 "proposals_inspect": true,
                 "proposals_validate": true,
                 "proposal_artifact_contract": true,
+                "subagent_role_contract": true,
+                "subagent_execution": false,
+                "subagent_runtime_orchestration": false,
                 "proposal_apply": false,
                 "proposal_generation": false,
                 "real_external_execution": false,
@@ -2777,6 +2818,15 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 },
                 {
                     "name": "proposals validate",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
+                {
+                    "name": "subagents list",
                     "json": true,
                     "side_effects": false,
                     "read_only": true,
@@ -2952,6 +3002,35 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                     }
                 },
                 {
+                    "command": "subagents list",
+                    "status": "stable",
+                    "notes": [
+                        "read-only",
+                        "static contract",
+                        "no runtime execution",
+                        "no external agents",
+                        "no network",
+                        "no apply"
+                    ],
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "execution_supported",
+                        "roles",
+                        "safety"
+                    ],
+                    "role_fields": [
+                        "id",
+                        "name",
+                        "mode",
+                        "allowed_outputs",
+                        "may_edit_files",
+                        "may_run_commands",
+                        "forbidden"
+                    ]
+                },
+                {
                     "command": "agent discover",
                     "status": "stable",
                     "required_fields": [
@@ -3033,6 +3112,7 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
             "safe_entrypoints": [
                 "ctxt --json schema",
                 "ctxt --json capabilities",
+                "ctxt --json subagents list",
                 "ctxt --json runs list",
                 "ctxt --json runs read latest --max-bytes 12000",
                 "ctxt --json agent discover",
@@ -3043,6 +3123,8 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "antigravity_direct_task_execution": false,
                 "proposal_only": true,
                 "external_execution": false,
+                "subagent_execution": false,
+                "subagent_roles_contract_only": true,
                 "network_default": "deny",
                 "apply_automatic": false
             },
@@ -3052,6 +3134,57 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "cargo run --bin ctxt -- --json agent discover",
                 "cargo run --bin ctxt -- --json runs list"
             ]
+        })
+    );
+    Ok(())
+}
+
+fn handle_subagents_list(_json_output: bool) -> Result<(), String> {
+    let forbidden = [
+        "network",
+        "providers",
+        "external_agent_invocation",
+        "proposal_apply",
+        "git_write",
+        "runtime_execution",
+    ];
+    let roles = [
+        ("schema-reviewer", "Schema Reviewer"),
+        ("capabilities-reviewer", "Capabilities Reviewer"),
+        ("proposal-reviewer", "Proposal Reviewer"),
+        ("test-reviewer", "Test Reviewer"),
+        ("docs-reviewer", "Docs Reviewer"),
+        ("safety-reviewer", "Safety Reviewer"),
+    ]
+    .into_iter()
+    .map(|(id, name)| {
+        serde_json::json!({
+            "id": id,
+            "name": name,
+            "mode": "contract-only",
+            "allowed_outputs": ["finding", "risk", "recommendation"],
+            "may_edit_files": false,
+            "may_run_commands": false,
+            "forbidden": forbidden
+        })
+    })
+    .collect::<Vec<_>>();
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "subagents list",
+            "schema_version": "0.1",
+            "execution_supported": false,
+            "roles": roles,
+            "safety": {
+                "subagents_executed": false,
+                "external_agents_invoked": false,
+                "network_used": false,
+                "apply_performed": false,
+                "git_write_performed": false
+            }
         })
     );
     Ok(())

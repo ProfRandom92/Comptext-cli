@@ -163,6 +163,23 @@ Phase 4h adds proposal support metadata to `ctxt --json capabilities`.
 
 Phase 4h is read-only capabilities introspection only: no apply, network, external agents, hooks, MCP, plugin packaging, or real execution.
 
+## Phase 5a Behavior
+
+Phase 5a adds a deterministic subagent role contract.
+
+`ctxt --json subagents list` reports the reviewer roles that project work may reference:
+
+- `schema-reviewer`
+- `capabilities-reviewer`
+- `proposal-reviewer`
+- `test-reviewer`
+- `docs-reviewer`
+- `safety-reviewer`
+
+These roles are static contracts only. `ctxt` does not execute subagents, start background tasks, invoke Codex CLI, invoke Antigravity CLI, call providers, use network, apply proposals, or perform git writes.
+
+External tools may use subagents as deterministic review or planning helpers when the phase permits it, but `ctxt` itself only exposes the allowed role contracts. Every role is `contract-only`, may emit findings, risks, and recommendations, and may not edit files or run commands.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

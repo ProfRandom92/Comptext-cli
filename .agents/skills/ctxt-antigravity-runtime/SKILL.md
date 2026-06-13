@@ -30,6 +30,7 @@ Use these commands first to inspect the shared contract and runtime surface:
 cargo run --bin ctxt -- --json self report
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json capabilities
+cargo run --bin ctxt -- --json subagents list
 cargo run --bin ctxt -- --json runs list
 cargo run --bin ctxt -- --json proposals list
 cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000
@@ -71,6 +72,12 @@ Schema discovery is read-only. Proposal artifacts remain untrusted, and approval
 Call `ctxt --json capabilities` after `ctxt --json schema`. Capabilities reveal whether proposal list, inspect, and validate are available.
 
 Proposal apply and proposal generation are explicitly unsupported. Proposal artifacts remain untrusted. Capabilities discovery is read-only.
+
+# Subagent Role Contracts
+
+Agents may use subagents only for deterministic review and planning when a phase explicitly permits it. `ctxt --json subagents list` is the source of truth for allowed role contracts.
+
+Subagent role contracts are not runtime execution, orchestration, provider calls, or external agent invocation. No subagent may use network, providers, external agents, proposal apply, git writes, or runtime execution. Subagent outputs are limited to findings, risks, and recommendations, and must be summarized by the main agent.
 
 # Plan Artifacts Only
 

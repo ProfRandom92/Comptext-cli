@@ -777,6 +777,9 @@ fn capabilities_json_reports_phase_four_b_introspection() {
     assert!(phases
         .iter()
         .any(|phase| { phase["phase"] == "4h" && phase["name"] == "proposal capabilities" }));
+    assert!(phases.iter().any(|phase| {
+        phase["phase"] == "5a" && phase["name"] == "deterministic subagent role contract"
+    }));
     assert_eq!(value["features"]["real_external_execution"], false);
     assert_eq!(value["features"]["network_gate"], false);
     assert_eq!(value["features"]["apply_gate"], false);
@@ -797,6 +800,9 @@ fn capabilities_json_reports_proposal_capabilities() {
     assert_eq!(features["proposals_inspect"], true);
     assert_eq!(features["proposals_validate"], true);
     assert_eq!(features["proposal_artifact_contract"], true);
+    assert_eq!(features["subagent_role_contract"], true);
+    assert_eq!(features["subagent_execution"], false);
+    assert_eq!(features["subagent_runtime_orchestration"], false);
     assert_eq!(features["proposal_apply"], false);
     assert_eq!(features["proposal_generation"], false);
 
@@ -813,6 +819,17 @@ fn capabilities_json_reports_proposal_capabilities() {
         assert_eq!(command["external_agent_invoked"], false);
         assert_eq!(command["apply_performed"], false);
     }
+
+    let subagents_command = commands
+        .iter()
+        .find(|command| command["name"] == "subagents list")
+        .expect("missing capabilities command entry for subagents list");
+    assert_eq!(subagents_command["json"], true);
+    assert_eq!(subagents_command["side_effects"], false);
+    assert_eq!(subagents_command["read_only"], true);
+    assert_eq!(subagents_command["network_used"], false);
+    assert_eq!(subagents_command["external_agent_invoked"], false);
+    assert_eq!(subagents_command["apply_performed"], false);
 }
 
 #[test]
@@ -835,6 +852,7 @@ fn schema_json_reports_stable_contracts() {
         "proposals inspect",
         "proposals validate",
         "proposal.v1 artifact",
+        "subagents list",
         "agent discover",
         "agent run --allow-external --proposal-only",
         "validate",
@@ -847,6 +865,65 @@ fn schema_json_reports_stable_contracts() {
     assert_eq!(value["safety"]["network_used"], false);
     assert_eq!(value["safety"]["external_agent_invoked"], false);
     assert_eq!(value["safety"]["apply_performed"], false);
+}
+
+#[test]
+fn schema_json_reports_subagent_contract_details() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+    let contract = contracts
+        .iter()
+        .find(|contract| contract["command"] == "subagents list")
+        .expect("subagents list contract should exist");
+
+    assert_eq!(contract["status"], "stable");
+    for note in [
+        "read-only",
+        "static contract",
+        "no runtime execution",
+        "no external agents",
+        "no network",
+        "no apply",
+    ] {
+        assert!(contract["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == note));
+    }
+    for field in [
+        "ok",
+        "command",
+        "schema_version",
+        "execution_supported",
+        "roles",
+        "safety",
+    ] {
+        assert!(contract["required_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+    for field in [
+        "id",
+        "name",
+        "mode",
+        "allowed_outputs",
+        "may_edit_files",
+        "may_run_commands",
+        "forbidden",
+    ] {
+        assert!(contract["role_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
 }
 
 #[test]
@@ -950,8 +1027,91 @@ fn self_report_json_reports_runtime_baseline() {
     assert_eq!(value["validation"]["last_known_unit_tests"], 37);
     assert_eq!(value["validation"]["last_known_smoke_tests"], 39);
     assert_eq!(value["agent_policy"]["external_execution"], false);
+    assert_eq!(value["agent_policy"]["subagent_execution"], false);
+    assert_eq!(value["agent_policy"]["subagent_roles_contract_only"], true);
     assert_eq!(value["agent_policy"]["network_default"], "deny");
     assert_eq!(value["agent_policy"]["apply_automatic"], false);
+    assert!(value["safe_entrypoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "ctxt --json subagents list"));
+}
+
+#[test]
+fn subagents_list_json_reports_contract_only_roles() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "subagents", "list"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("subagents list JSON should parse");
+    let roles = value["roles"].as_array().expect("roles should be an array");
+    let required_ids = [
+        "schema-reviewer",
+        "capabilities-reviewer",
+        "proposal-reviewer",
+        "test-reviewer",
+        "docs-reviewer",
+        "safety-reviewer",
+    ];
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "subagents list");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["execution_supported"], false);
+    for id in required_ids {
+        assert!(roles.iter().any(|role| role["id"] == id), "missing {id}");
+    }
+
+    for role in roles {
+        assert_eq!(role["mode"], "contract-only");
+        assert_eq!(role["may_edit_files"], false);
+        assert_eq!(role["may_run_commands"], false);
+        for output in ["finding", "risk", "recommendation"] {
+            assert!(role["allowed_outputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == output));
+        }
+        for forbidden in [
+            "network",
+            "providers",
+            "external_agent_invocation",
+            "proposal_apply",
+            "git_write",
+            "runtime_execution",
+        ] {
+            assert!(role["forbidden"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == forbidden));
+        }
+    }
+
+    assert_eq!(value["safety"]["subagents_executed"], false);
+    assert_eq!(value["safety"]["external_agents_invoked"], false);
+    assert_eq!(value["safety"]["network_used"], false);
+    assert_eq!(value["safety"]["apply_performed"], false);
+    assert_eq!(value["safety"]["git_write_performed"], false);
+}
+
+#[test]
+fn subagent_unknown_commands_fail_with_json_errors() {
+    let _guard = test_lock();
+    let cases = [
+        vec!["--json", "subagents"],
+        vec!["--json", "subagents", "run"],
+        vec!["--json", "subagents", "execute"],
+        vec!["--json", "subagents", "list", "extra"],
+        vec!["--json", "subagents", "unknown"],
+    ];
+
+    for args in cases {
+        let value = run_fail(&args);
+        assert_eq!(value["ok"], false);
+        assert!(value["error"]["message"].is_string());
+    }
 }
 
 #[test]

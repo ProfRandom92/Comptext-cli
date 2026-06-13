@@ -72,6 +72,7 @@ cargo run --bin ctxt -- --json agent run --kind antigravity --task "..." --allow
 cargo run --bin ctxt -- --json artifacts read .comptext/runs/latest/run.json --max-bytes 12000
 cargo run --bin ctxt -- --json capabilities
 cargo run --bin ctxt -- --json schema
+cargo run --bin ctxt -- --json subagents list
 cargo run --bin ctxt -- --json runs list
 cargo run --bin ctxt -- --json runs read latest --max-bytes 12000
 cargo run --bin ctxt -- --json proposals list
@@ -141,6 +142,14 @@ Schema discovery is read-only. Proposal artifacts remain untrusted. Approval met
 Phase 4h adds proposal support metadata to `ctxt --json capabilities`. Agents should call `ctxt --json capabilities` after `ctxt --json schema` to confirm whether proposal list, inspect, and validate are available.
 
 Proposal apply and proposal generation are explicitly unsupported. Proposal artifacts remain untrusted. Capabilities discovery is read-only.
+
+# Phase 5a Note
+
+Phase 5a adds deterministic subagent role contracts through `ctxt --json subagents list`.
+
+Agents may use subagents only for deterministic review and planning when a phase explicitly permits it. `ctxt --json subagents list` is the source of truth for allowed role contracts. These contracts are not runtime execution, orchestration, provider calls, or external agent invocation.
+
+No subagent may use network, providers, external agents, proposal apply, git writes, or runtime execution. Subagent outputs are limited to findings, risks, and recommendations, and remain untrusted review input for the main agent to summarize.
 
 # Cross-Agent Compatibility
 
