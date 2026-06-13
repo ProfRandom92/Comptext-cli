@@ -45,6 +45,19 @@ Proposal-only means:
 
 This prepares the contract for future gated execution without changing the Phase 1 safety boundary.
 
+## Phase 3 Behavior
+
+Phase 3 adds discovery only.
+
+`ctxt agent discover` lists the external agent kinds that CompText knows how to discover:
+
+- `codex`
+- `antigravity`
+
+`ctxt agent discover --kind <kind>` scans local `PATH` metadata for the matching CLI binary. It does not execute external agents, does not execute version commands, does not use network, and does not apply proposals.
+
+Version detection is deferred to a future gated capability because even a version check would invoke the external binary.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

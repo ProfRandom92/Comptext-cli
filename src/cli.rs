@@ -104,6 +104,9 @@ enum Command {
         run: bool,
     },
     AgentList,
+    AgentDiscover {
+        kind: Option<String>,
+    },
     AgentRun {
         kind: String,
         task: String,
@@ -357,6 +360,15 @@ where
                 1
             }
         },
+        Ok(Command::AgentDiscover { kind }) => {
+            match handle_agent_discover(kind.as_deref(), json_output) {
+                Ok(code) => code,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
+        }
         Ok(Command::AgentRun {
             kind,
             task,
@@ -473,6 +485,32 @@ fn parse_agent_command(argv: &[String]) -> Result<Command, String> {
                 ));
             }
             Ok(Command::AgentList)
+        }
+        "discover" => {
+            let mut kind = None;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--kind" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing kind after --kind".to_string());
+                        }
+                        if kind.is_some() {
+                            return Err("duplicate --kind for 'agent discover'".to_string());
+                        }
+                        kind = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unexpected argument '{other}' for 'agent discover'"
+                        ));
+                    }
+                }
+            }
+
+            Ok(Command::AgentDiscover { kind })
         }
         "run" => {
             let mut kind = None;
@@ -2378,6 +2416,86 @@ fn handle_agent_list(_json_output: bool) -> Result<(), String> {
         })
     );
     Ok(())
+}
+
+fn discovery_targets() -> [&'static str; 2] {
+    ["codex", "antigravity"]
+}
+
+fn discovery_candidate_names(kind: &str) -> Vec<String> {
+    if cfg!(windows) {
+        vec![
+            format!("{kind}.exe"),
+            format!("{kind}.cmd"),
+            format!("{kind}.bat"),
+        ]
+    } else {
+        vec![kind.to_string()]
+    }
+}
+
+fn discover_agent_path(kind: &str) -> Option<String> {
+    let path_value = std::env::var_os("PATH")?;
+    let candidates = discovery_candidate_names(kind);
+
+    for dir in std::env::split_paths(&path_value) {
+        for candidate in &candidates {
+            let path = dir.join(candidate);
+            if path.exists() {
+                return Some(path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn handle_agent_discover(kind: Option<&str>, _json_output: bool) -> Result<i32, String> {
+    let targets = discovery_targets();
+
+    if let Some(kind) = kind {
+        if !targets.contains(&kind) {
+            return Err(format!("unsupported agent discovery kind '{kind}'"));
+        }
+
+        let discovered_path = discover_agent_path(kind);
+        let discovered = discovered_path.is_some();
+        let mut notes = vec![
+            "path discovery uses PATH scanning only".to_string(),
+            "version detection is deferred because it would invoke the external binary".to_string(),
+        ];
+        if !discovered {
+            notes.push("binary not found on PATH".to_string());
+        }
+
+        println!(
+            "{}",
+            serde_json::json!({
+                "command": "agent discover",
+                "kind": kind,
+                "ok": true,
+                "discovered": discovered,
+                "path": discovered_path,
+                "version": serde_json::Value::Null,
+                "external_agent_invoked": false,
+                "network_used": false,
+                "notes": notes
+            })
+        );
+        return Ok(0);
+    }
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "command": "agent discover",
+            "ok": true,
+            "targets": targets,
+            "external_agent_invoked": false,
+            "network_used": false
+        })
+    );
+    Ok(0)
 }
 
 fn agent_would_run(kind: &str, task: &str) -> String {

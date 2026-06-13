@@ -427,6 +427,79 @@ fn agent_list_json_reports_phase_one_agents() {
 }
 
 #[test]
+fn agent_discover_json_lists_supported_targets() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "agent", "discover"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("agent discover JSON should parse");
+    let targets = value["targets"]
+        .as_array()
+        .expect("targets should be an array");
+
+    assert_eq!(value["command"], "agent discover");
+    assert_eq!(value["ok"], true);
+    assert!(targets.iter().any(|target| target == "codex"));
+    assert!(targets.iter().any(|target| target == "antigravity"));
+    assert_eq!(value["external_agent_invoked"], false);
+    assert_eq!(value["network_used"], false);
+}
+
+fn assert_agent_discovery_shape(value: &serde_json::Value, kind: &str) {
+    assert_eq!(value["command"], "agent discover");
+    assert_eq!(value["kind"], kind);
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["version"], serde_json::Value::Null);
+    assert_eq!(value["external_agent_invoked"], false);
+    assert_eq!(value["network_used"], false);
+
+    let discovered = value["discovered"]
+        .as_bool()
+        .expect("discovered should be a bool");
+    let path_is_string = value["path"].is_string();
+    assert_eq!(discovered, path_is_string);
+    assert!(value["path"].is_null() || path_is_string);
+    assert!(value["notes"].is_array());
+}
+
+#[test]
+fn agent_discover_codex_json_reports_path_metadata_only() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "agent", "discover", "--kind", "codex"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("agent discover codex JSON should parse");
+
+    assert_agent_discovery_shape(&value, "codex");
+}
+
+#[test]
+fn agent_discover_antigravity_json_reports_path_metadata_only() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "agent", "discover", "--kind", "antigravity"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("agent discover antigravity JSON should parse");
+
+    assert_agent_discovery_shape(&value, "antigravity");
+}
+
+#[test]
+fn agent_discover_unknown_kind_fails_with_json_error() {
+    let _guard = test_lock();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(["--json", "agent", "discover", "--kind", "unknown"])
+        .output()
+        .expect("ctxt binary should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    let value: serde_json::Value = serde_json::from_str(&stderr).expect("error JSON should parse");
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unsupported agent discovery kind"));
+}
+
+#[test]
 fn agent_run_dummy_writes_run_artifact() {
     let _guard = test_lock();
     let run_path = std::path::Path::new(".comptext/runs/latest/run.json");
