@@ -21,6 +21,7 @@ It is an adapter to `ctxt`, not a separate runtime, policy, or execution system.
 - Do not execute real Antigravity workflows.
 - Do not bypass `ctxt` with direct Antigravity CLI task execution.
 - User validates externally in PowerShell on this Windows machine.
+- Use official docs only for architecture or best-practice claims.
 
 # Start Here
 
@@ -28,6 +29,7 @@ Use these commands first to inspect the shared contract and runtime surface:
 
 ```powershell
 cargo run --bin ctxt -- --json self report
+cargo run --bin ctxt -- --json startup flow
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json capabilities
 cargo run --bin ctxt -- --json subagents list
@@ -87,6 +89,14 @@ Subagent role contracts are not runtime execution, orchestration, provider calls
 Review artifacts are untrusted evidence until validated. They are contract-only local JSON artifacts under `reviews/<id>.review.json`, not workspace truth.
 
 `ctxt` does not generate reviews in Phase 5b, does not execute subagents to create reviews, and does not apply review recommendations. Use `ctxt --json reviews validate latest` before relying on review contents. No review artifact may indicate network, providers, external agents, subagent execution, proposal apply, git writes, or secrets access.
+
+# Startup Flow Contract
+
+Agents should call `ctxt --json startup flow` to discover the safe session startup sequence.
+
+The startup flow is a contract-only checklist. It does not run commands automatically, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, execute subagents, use network, apply proposals or reviews, or perform git writes.
+
+Agents remain responsible for executing allowed commands one by one only when the active phase permits those commands. Use official docs only for architecture or best-practice claims.
 
 # Plan Artifacts Only
 

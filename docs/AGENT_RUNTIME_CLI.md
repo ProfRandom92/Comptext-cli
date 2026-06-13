@@ -204,6 +204,26 @@ Review artifacts are local JSON evidence contracts only. They can record reviewe
 
 Phase 5b does not generate review artifacts, apply review recommendations, execute subagents, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, use network, call providers, create hooks, create plugins, or start background tasks.
 
+## Phase 5c Behavior
+
+Phase 5c adds a deterministic startup review flow contract.
+
+`ctxt --json startup flow` returns a static recommended sequence for safe Codex and Antigravity project sessions:
+
+```powershell
+ctxt --json self report
+ctxt --json schema
+ctxt --json capabilities
+ctxt --json subagents list
+ctxt --json proposals list
+ctxt --json reviews list
+ctxt --json validate --run
+```
+
+The startup flow is a contract-only checklist. It does not execute the flow, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, use network, execute subagents, apply proposals, apply review recommendations, or perform git writes.
+
+External tools may use `ctxt --json startup flow` as a deterministic startup checklist. They remain responsible for executing allowed commands one by one only when the active phase permits those commands.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

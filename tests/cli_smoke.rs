@@ -1181,6 +1181,9 @@ fn capabilities_json_reports_phase_four_b_introspection() {
     assert!(phases.iter().any(|phase| {
         phase["phase"] == "5b" && phase["name"] == "deterministic review artifact contract"
     }));
+    assert!(phases.iter().any(|phase| {
+        phase["phase"] == "5c" && phase["name"] == "deterministic startup review flow contract"
+    }));
     assert_eq!(value["features"]["real_external_execution"], false);
     assert_eq!(value["features"]["network_gate"], false);
     assert_eq!(value["features"]["apply_gate"], false);
@@ -1208,6 +1211,8 @@ fn capabilities_json_reports_proposal_capabilities() {
     assert_eq!(features["reviews_inspect"], true);
     assert_eq!(features["reviews_validate"], true);
     assert_eq!(features["review_artifact_contract"], true);
+    assert_eq!(features["startup_flow_contract"], true);
+    assert_eq!(features["startup_flow_execution"], false);
     assert_eq!(features["review_generation"], false);
     assert_eq!(features["review_apply"], false);
     assert_eq!(features["proposal_apply"], false);
@@ -1220,6 +1225,7 @@ fn capabilities_json_reports_proposal_capabilities() {
         "reviews list",
         "reviews inspect",
         "reviews validate",
+        "startup flow",
     ] {
         let command = commands
             .iter()
@@ -1247,6 +1253,66 @@ fn capabilities_json_reports_proposal_capabilities() {
 }
 
 #[test]
+fn startup_flow_json_reports_static_sequence() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "startup", "flow"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("startup flow JSON should parse");
+    let sequence = value["recommended_sequence"]
+        .as_array()
+        .expect("recommended_sequence should be an array");
+    let expected_commands = [
+        "ctxt --json self report",
+        "ctxt --json schema",
+        "ctxt --json capabilities",
+        "ctxt --json subagents list",
+        "ctxt --json proposals list",
+        "ctxt --json reviews list",
+        "ctxt --json validate --run",
+    ];
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "startup flow");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["execution_supported"], false);
+    assert_eq!(sequence.len(), expected_commands.len());
+
+    for (index, expected_command) in expected_commands.iter().enumerate() {
+        let item = &sequence[index];
+        assert_eq!(item["order"].as_u64().unwrap(), (index + 1) as u64);
+        assert_eq!(item["command"], *expected_command);
+        assert!(item["purpose"].as_str().unwrap().len() > 0);
+        assert_eq!(item["required"], true);
+        assert_eq!(item["executes"], false);
+    }
+
+    assert_eq!(value["safety"]["flow_executed"], false);
+    assert_eq!(value["safety"]["network_used"], false);
+    assert_eq!(value["safety"]["external_agents_invoked"], false);
+    assert_eq!(value["safety"]["subagents_executed"], false);
+    assert_eq!(value["safety"]["apply_performed"], false);
+    assert_eq!(value["safety"]["git_write_performed"], false);
+}
+
+#[test]
+fn startup_unknown_commands_fail_with_json_errors() {
+    let _guard = test_lock();
+    let cases = [
+        vec!["--json", "startup"],
+        vec!["--json", "startup", "run"],
+        vec!["--json", "startup", "execute"],
+        vec!["--json", "startup", "flow", "extra"],
+        vec!["--json", "startup", "unknown"],
+    ];
+
+    for args in cases {
+        let value = run_fail(&args);
+        assert_eq!(value["ok"], false);
+        assert!(value["error"]["message"].is_string());
+    }
+}
+
+#[test]
 fn schema_json_reports_stable_contracts() {
     let _guard = test_lock();
     let stdout = run(&["--json", "schema"]);
@@ -1267,6 +1333,7 @@ fn schema_json_reports_stable_contracts() {
         "proposals validate",
         "proposal.v1 artifact",
         "subagents list",
+        "startup flow",
         "reviews list",
         "reviews inspect",
         "reviews validate",
@@ -1283,6 +1350,57 @@ fn schema_json_reports_stable_contracts() {
     assert_eq!(value["safety"]["network_used"], false);
     assert_eq!(value["safety"]["external_agent_invoked"], false);
     assert_eq!(value["safety"]["apply_performed"], false);
+}
+
+#[test]
+fn schema_json_reports_startup_flow_contract_details() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+    let contract = contracts
+        .iter()
+        .find(|contract| contract["command"] == "startup flow")
+        .expect("startup flow contract should exist");
+
+    assert_eq!(contract["status"], "stable");
+    for note in [
+        "read-only",
+        "static contract",
+        "does not execute flow",
+        "no external agents",
+        "no network",
+        "no apply",
+    ] {
+        assert!(contract["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == note));
+    }
+    for field in [
+        "ok",
+        "command",
+        "schema_version",
+        "execution_supported",
+        "recommended_sequence",
+        "safety",
+    ] {
+        assert!(contract["required_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+    for field in ["order", "command", "purpose", "required", "executes"] {
+        assert!(contract["sequence_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
 }
 
 #[test]
@@ -1523,6 +1641,8 @@ fn self_report_json_reports_runtime_baseline() {
         value["agent_policy"]["review_artifacts_contract_only"],
         true
     );
+    assert_eq!(value["agent_policy"]["startup_flow_execution"], false);
+    assert_eq!(value["agent_policy"]["startup_flow_contract_only"], true);
     assert_eq!(value["agent_policy"]["network_default"], "deny");
     assert_eq!(value["agent_policy"]["apply_automatic"], false);
     assert!(value["safe_entrypoints"]
@@ -1530,6 +1650,11 @@ fn self_report_json_reports_runtime_baseline() {
         .unwrap()
         .iter()
         .any(|entry| entry == "ctxt --json subagents list"));
+    assert!(value["safe_entrypoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "ctxt --json startup flow"));
     for entry in [
         "ctxt --json reviews list",
         "ctxt --json reviews inspect latest --max-bytes 12000",

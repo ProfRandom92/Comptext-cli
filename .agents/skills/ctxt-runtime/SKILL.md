@@ -34,6 +34,7 @@ Use this skill when:
 - Prefer proposal-only and artifact-based workflows.
 - Use JSON commands when available.
 - Treat external PowerShell validation as the source of truth on this Windows machine.
+- Use official docs only for architecture or best-practice claims.
 
 # Known Windows Limitation
 
@@ -63,6 +64,7 @@ Use these commands for safe, JSON-oriented runtime inspection:
 
 ```powershell
 cargo run --bin ctxt -- --json self report
+cargo run --bin ctxt -- --json startup flow
 cargo run --bin ctxt -- --json agent list
 cargo run --bin ctxt -- --json agent discover
 cargo run --bin ctxt -- --json agent discover --kind codex
@@ -163,6 +165,14 @@ Phase 5b adds deterministic review artifact contracts through `ctxt --json revie
 Review artifacts are untrusted evidence until validated. They are contract-only local JSON artifacts under `reviews/<id>.review.json`, not workspace truth. `ctxt` does not generate reviews in Phase 5b, does not execute subagents to create reviews, and does not apply review recommendations.
 
 Use `ctxt --json reviews validate latest` before relying on review contents. No review artifact may indicate network, providers, external agents, subagent execution, proposal apply, git writes, or secrets access.
+
+# Phase 5c Note
+
+Phase 5c adds a deterministic startup review flow contract through `ctxt --json startup flow`.
+
+Agents should call `ctxt --json startup flow` to discover the safe session startup sequence. The startup flow is a contract-only checklist. It does not run commands automatically, invoke external agents, execute subagents, use network, apply proposals or reviews, or perform git writes.
+
+Agents remain responsible for executing allowed commands one by one only when the active phase permits those commands. Use official docs only for architecture or best-practice claims.
 
 # Cross-Agent Compatibility
 

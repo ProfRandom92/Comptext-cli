@@ -106,6 +106,7 @@ enum Command {
     Capabilities,
     Schema,
     SelfReport,
+    StartupFlow,
     SubagentsList,
     RunsList,
     RunsRead {
@@ -393,6 +394,13 @@ where
             }
         },
         Ok(Command::SelfReport) => match handle_self_report(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::StartupFlow) => match handle_startup_flow(json_output) {
             Ok(_) => 0,
             Err(e) => {
                 emit_error(json_output, &e);
@@ -1036,6 +1044,29 @@ fn parse_subagents_command(argv: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_startup_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err("missing subcommand for 'startup'. Usage: ctxt startup flow".to_string());
+    }
+
+    match argv[1].as_str() {
+        "flow" => {
+            if argv.len() > 2 {
+                return Err(format!(
+                    "unexpected argument '{}' for 'startup flow'",
+                    argv[2]
+                ));
+            }
+            Ok(Command::StartupFlow)
+        }
+        "run" | "execute" => Err(format!(
+            "unsupported subcommand '{}' for 'startup': startup flow execution is not supported",
+            argv[1]
+        )),
+        other => Err(format!("unsupported subcommand '{}' for 'startup'", other)),
+    }
+}
+
 fn parse(argv: &[String]) -> Result<Command, String> {
     if argv.is_empty() {
         return Ok(Command::Help);
@@ -1059,6 +1090,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     }
     if first == "subagents" {
         return parse_subagents_command(argv);
+    }
+    if first == "startup" {
+        return parse_startup_command(argv);
     }
 
     match first.as_str() {
@@ -2880,6 +2914,78 @@ fn handle_validate(run: bool, json_output: bool) -> Result<i32, String> {
     Ok(0)
 }
 
+fn handle_startup_flow(_json_output: bool) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "startup flow",
+            "schema_version": "0.1",
+            "execution_supported": false,
+            "recommended_sequence": [
+                {
+                    "order": 1,
+                    "command": "ctxt --json self report",
+                    "purpose": "read local runtime baseline and safe entrypoints",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 2,
+                    "command": "ctxt --json schema",
+                    "purpose": "read stable JSON command and artifact contracts",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 3,
+                    "command": "ctxt --json capabilities",
+                    "purpose": "read supported features and disabled gates",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 4,
+                    "command": "ctxt --json subagents list",
+                    "purpose": "read deterministic review and planning role contracts",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 5,
+                    "command": "ctxt --json proposals list",
+                    "purpose": "list local proposal artifact references without applying them",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 6,
+                    "command": "ctxt --json reviews list",
+                    "purpose": "list local review artifact references without generating or applying reviews",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 7,
+                    "command": "ctxt --json validate --run",
+                    "purpose": "run local validation only when the phase permits validation execution",
+                    "required": true,
+                    "executes": false
+                }
+            ],
+            "safety": {
+                "flow_executed": false,
+                "network_used": false,
+                "external_agents_invoked": false,
+                "subagents_executed": false,
+                "apply_performed": false,
+                "git_write_performed": false
+            }
+        })
+    );
+    Ok(())
+}
+
 fn handle_capabilities(_json_output: bool) -> Result<(), String> {
     println!(
         "{}",
@@ -2900,7 +3006,8 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 {"phase": "4g", "name": "proposal schema contracts", "status": "stable"},
                 {"phase": "4h", "name": "proposal capabilities", "status": "stable"},
                 {"phase": "5a", "name": "deterministic subagent role contract", "status": "stable"},
-                {"phase": "5b", "name": "deterministic review artifact contract", "status": "stable"}
+                {"phase": "5b", "name": "deterministic review artifact contract", "status": "stable"},
+                {"phase": "5c", "name": "deterministic startup review flow contract", "status": "stable"}
             ],
             "safety": {
                 "network_default": "deny",
@@ -2925,6 +3032,8 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 "reviews_inspect": true,
                 "reviews_validate": true,
                 "review_artifact_contract": true,
+                "startup_flow_contract": true,
+                "startup_flow_execution": false,
                 "review_generation": false,
                 "review_apply": false,
                 "proposal_apply": false,
@@ -3014,6 +3123,15 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 },
                 {
                     "name": "reviews validate",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
+                {
+                    "name": "startup flow",
                     "json": true,
                     "side_effects": false,
                     "read_only": true,
@@ -3341,6 +3459,33 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                     ]
                 },
                 {
+                    "command": "startup flow",
+                    "status": "stable",
+                    "notes": [
+                        "read-only",
+                        "static contract",
+                        "does not execute flow",
+                        "no external agents",
+                        "no network",
+                        "no apply"
+                    ],
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "execution_supported",
+                        "recommended_sequence",
+                        "safety"
+                    ],
+                    "sequence_fields": [
+                        "order",
+                        "command",
+                        "purpose",
+                        "required",
+                        "executes"
+                    ]
+                },
+                {
                     "command": "agent discover",
                     "status": "stable",
                     "required_fields": [
@@ -3421,6 +3566,7 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
             },
             "safe_entrypoints": [
                 "ctxt --json schema",
+                "ctxt --json startup flow",
                 "ctxt --json capabilities",
                 "ctxt --json subagents list",
                 "ctxt --json reviews list",
@@ -3441,6 +3587,8 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "review_generation": false,
                 "review_apply": false,
                 "review_artifacts_contract_only": true,
+                "startup_flow_execution": false,
+                "startup_flow_contract_only": true,
                 "network_default": "deny",
                 "apply_automatic": false
             },
