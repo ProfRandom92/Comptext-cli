@@ -111,6 +111,14 @@ enum Command {
         id: String,
         max_bytes: usize,
     },
+    ProposalsList,
+    ProposalsInspect {
+        id: String,
+        max_bytes: usize,
+    },
+    ProposalsValidate {
+        id: String,
+    },
     AgentList,
     AgentDiscover {
         kind: Option<String>,
@@ -391,6 +399,31 @@ where
         },
         Ok(Command::RunsRead { id, max_bytes }) => {
             match handle_runs_read(&id, max_bytes, json_output) {
+                Ok(_) => 0,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
+        }
+        Ok(Command::ProposalsList) => match handle_proposals_list(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::ProposalsInspect { id, max_bytes }) => {
+            match handle_proposals_inspect(&id, max_bytes, json_output) {
+                Ok(_) => 0,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
+        }
+        Ok(Command::ProposalsValidate { id }) => {
+            match handle_proposals_validate(&id, json_output) {
                 Ok(_) => 0,
                 Err(e) => {
                     emit_error(json_output, &e);
@@ -687,6 +720,122 @@ fn parse_runs_command(argv: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_proposals_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err(
+            "missing subcommand for 'proposals'. Usage: ctxt proposals list | inspect | validate"
+                .to_string(),
+        );
+    }
+
+    match argv[1].as_str() {
+        "list" => {
+            if argv.len() > 2 {
+                return Err(format!(
+                    "unexpected argument '{}' for 'proposals list'",
+                    argv[2]
+                ));
+            }
+            Ok(Command::ProposalsList)
+        }
+        "inspect" => {
+            let mut id = None;
+            let mut max_bytes = 12000usize;
+            let mut saw_max_bytes = false;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--id" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing id after --id".to_string());
+                        }
+                        if id.is_some() {
+                            return Err("duplicate --id for 'proposals inspect'".to_string());
+                        }
+                        id = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--max-bytes" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing byte count after --max-bytes".to_string());
+                        }
+                        if saw_max_bytes {
+                            return Err("duplicate --max-bytes for 'proposals inspect'".to_string());
+                        }
+                        max_bytes = argv[i + 1]
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --max-bytes value '{}'", argv[i + 1]))?;
+                        if max_bytes == 0 {
+                            return Err("--max-bytes must be greater than zero".to_string());
+                        }
+                        saw_max_bytes = true;
+                        i += 2;
+                    }
+                    value if value.starts_with('-') => {
+                        return Err(format!(
+                            "unexpected argument '{value}' for 'proposals inspect'"
+                        ));
+                    }
+                    value => {
+                        if id.is_some() {
+                            return Err(format!(
+                                "unexpected argument '{value}' for 'proposals inspect'"
+                            ));
+                        }
+                        id = Some(value.to_string());
+                        i += 1;
+                    }
+                }
+            }
+
+            let id = id.ok_or_else(|| "missing proposal id for 'proposals inspect'".to_string())?;
+            Ok(Command::ProposalsInspect { id, max_bytes })
+        }
+        "validate" => {
+            let mut id = None;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--id" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing id after --id".to_string());
+                        }
+                        if id.is_some() {
+                            return Err("duplicate --id for 'proposals validate'".to_string());
+                        }
+                        id = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    value if value.starts_with('-') => {
+                        return Err(format!(
+                            "unexpected argument '{value}' for 'proposals validate'"
+                        ));
+                    }
+                    value => {
+                        if id.is_some() {
+                            return Err(format!(
+                                "unexpected argument '{value}' for 'proposals validate'"
+                            ));
+                        }
+                        id = Some(value.to_string());
+                        i += 1;
+                    }
+                }
+            }
+
+            let id =
+                id.ok_or_else(|| "missing proposal id for 'proposals validate'".to_string())?;
+            Ok(Command::ProposalsValidate { id })
+        }
+        other => Err(format!(
+            "unsupported subcommand '{}' for 'proposals'",
+            other
+        )),
+    }
+}
+
 fn parse_self_command(argv: &[String]) -> Result<Command, String> {
     if argv.len() < 2 {
         return Err("missing subcommand for 'self'. Usage: ctxt self report".to_string());
@@ -714,6 +863,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     }
     if first == "runs" {
         return parse_runs_command(argv);
+    }
+    if first == "proposals" {
+        return parse_proposals_command(argv);
     }
     if first == "self" {
         return parse_self_command(argv);
@@ -1287,6 +1439,9 @@ COMMANDS:\n\
     providers list      List configured provider kinds\n\
     artifacts list      List local runtime/proposal/report artifacts\n\
     artifacts read      Read a bounded local artifact excerpt\n\
+    proposals list      List local proposal artifacts\n\
+    proposals inspect   Inspect a bounded local proposal artifact\n\
+    proposals validate  Validate a local proposal artifact contract\n\
     version             Print version\n\
     context inspect     Inspect the workspace context\n\
     context pack        Pack deterministic Context Pack\n\
@@ -2547,7 +2702,11 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 {"phase": "2", "name": "execution-plan-only", "status": "stable"},
                 {"phase": "3", "name": "discovery-only", "status": "stable"},
                 {"phase": "4a", "name": "companion skill", "status": "stable"},
-                {"phase": "4b", "name": "agent-friendly CLI polish", "status": "in-progress"}
+                {"phase": "4b", "name": "agent-friendly CLI polish", "status": "stable"},
+                {"phase": "4c", "name": "JSON schema contract", "status": "stable"},
+                {"phase": "4d", "name": "cross-agent guidance", "status": "stable"},
+                {"phase": "4e", "name": "runtime self report", "status": "stable"},
+                {"phase": "4f", "name": "proposal artifact contract", "status": "in-progress"}
             ],
             "safety": {
                 "network_default": "deny",
@@ -2561,6 +2720,9 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 "execution_plan_only": true,
                 "runs_list": true,
                 "runs_read": true,
+                "proposals_list": true,
+                "proposals_inspect": true,
+                "proposals_validate": true,
                 "real_external_execution": false,
                 "network_gate": false,
                 "apply_gate": false
@@ -2588,6 +2750,19 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                     "json": true,
                     "side_effects": false,
                     "bounded_read": true
+                },
+                {"name": "proposals list", "json": true, "side_effects": false},
+                {
+                    "name": "proposals inspect",
+                    "json": true,
+                    "side_effects": false,
+                    "bounded_read": true
+                },
+                {
+                    "name": "proposals validate",
+                    "json": true,
+                    "side_effects": false,
+                    "applies_changes": false
                 }
             ]
         })
@@ -2639,6 +2814,75 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                         "content"
                     ],
                     "notes": ["bounded read", "read-only"]
+                },
+                {
+                    "command": "proposals list",
+                    "status": "stable",
+                    "required_fields": ["ok", "command", "schema_version", "proposals", "count"],
+                    "proposal_fields": [
+                        "id",
+                        "path",
+                        "created_at",
+                        "phase",
+                        "title",
+                        "status",
+                        "valid"
+                    ],
+                    "notes": ["read-only", "malformed JSON remains listable as valid=false"]
+                },
+                {
+                    "command": "proposals inspect",
+                    "status": "stable",
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "id",
+                        "path",
+                        "max_bytes",
+                        "truncated",
+                        "proposal"
+                    ],
+                    "notes": ["bounded read", "read-only", "does not apply proposals"]
+                },
+                {
+                    "command": "proposals validate",
+                    "status": "stable",
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "id",
+                        "path",
+                        "valid",
+                        "errors"
+                    ],
+                    "contract": {
+                        "schema_version": "proposal.v1",
+                        "required_fields": [
+                            "schema_version",
+                            "id",
+                            "created_at",
+                            "phase",
+                            "title",
+                            "summary",
+                            "intent",
+                            "allowed_files",
+                            "forbidden_scope",
+                            "changes",
+                            "validation",
+                            "network",
+                            "secrets",
+                            "status"
+                        ],
+                        "status_values": [
+                            "draft",
+                            "ready-for-review",
+                            "rejected",
+                            "approved-for-apply"
+                        ]
+                    },
+                    "notes": ["read-only", "approved-for-apply is metadata only"]
                 },
                 {
                     "command": "agent discover",
@@ -2792,6 +3036,289 @@ fn handle_runs_read(id: &str, max_bytes: usize, _json_output: bool) -> Result<()
             "max_bytes": max_bytes,
             "truncated": truncated,
             "content": content
+        })
+    );
+    Ok(())
+}
+
+fn proposal_root() -> &'static std::path::Path {
+    std::path::Path::new("proposals")
+}
+
+fn is_safe_proposal_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('.')
+        && !id.contains("..")
+        && !id.contains('/')
+        && !id.contains('\\')
+        && !std::path::Path::new(id).is_absolute()
+        && id.chars().all(|c| {
+            c.is_ascii_digit() || c.is_ascii_lowercase() || c == 'T' || c == 'Z' || c == '-'
+        })
+}
+
+fn proposal_path_for_id(id: &str) -> Result<(String, std::path::PathBuf), String> {
+    if !is_safe_proposal_id(id) {
+        return Err(format!("invalid proposal id '{id}'"));
+    }
+    let rel_path = format!("proposals/{id}.json");
+    Ok((rel_path.clone(), std::path::PathBuf::from(rel_path)))
+}
+
+fn list_proposal_files() -> Result<Vec<(String, String, std::path::PathBuf)>, String> {
+    let root = proposal_root();
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    if !root.is_dir() {
+        return Err("proposal root 'proposals' is not a directory".to_string());
+    }
+
+    let mut files = Vec::new();
+    for entry in
+        std::fs::read_dir(root).map_err(|e| format!("failed to read proposal root: {e}"))?
+    {
+        let entry = entry.map_err(|e| format!("failed to read proposal entry: {e}"))?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let rel_path = format!("proposals/{stem}.json");
+        files.push((stem.to_string(), rel_path, path));
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
+}
+
+fn resolve_proposal_id(id: &str) -> Result<(String, String, std::path::PathBuf), String> {
+    if id == "latest" {
+        let latest = list_proposal_files()?
+            .into_iter()
+            .filter(|(candidate_id, _, _)| is_safe_proposal_id(candidate_id))
+            .max_by(|a, b| a.0.cmp(&b.0));
+        return latest.ok_or_else(|| "no proposal artifacts found for 'latest'".to_string());
+    }
+
+    let (rel_path, path) = proposal_path_for_id(id)?;
+    if !path.exists() {
+        return Err(format!("unknown proposal id '{id}'"));
+    }
+    Ok((id.to_string(), rel_path, path))
+}
+
+fn read_proposal_bounded(path: &std::path::Path, max_bytes: usize) -> Result<String, String> {
+    let metadata = std::fs::metadata(path).map_err(|e| {
+        format!(
+            "failed to stat proposal artifact '{}': {e}",
+            normalize_path(path)
+        )
+    })?;
+    if metadata.len() > max_bytes as u64 {
+        return Err(format!(
+            "proposal artifact '{}' exceeds --max-bytes {max_bytes}",
+            normalize_path(path)
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|e| {
+        format!(
+            "failed to read proposal artifact '{}': {e}",
+            normalize_path(path)
+        )
+    })
+}
+
+fn string_field<'a>(
+    value: &'a serde_json::Value,
+    field: &str,
+    errors: &mut Vec<String>,
+) -> &'a str {
+    match value
+        .get(field)
+        .and_then(|field_value| field_value.as_str())
+    {
+        Some(text) if !text.is_empty() => text,
+        _ => {
+            errors.push(format!("missing or empty string field '{field}'"));
+            ""
+        }
+    }
+}
+
+fn string_array_field(value: &serde_json::Value, field: &str, errors: &mut Vec<String>) {
+    match value
+        .get(field)
+        .and_then(|field_value| field_value.as_array())
+    {
+        Some(items) if items.iter().all(|item| item.is_string()) => {}
+        _ => errors.push(format!("field '{field}' must be an array of strings")),
+    }
+}
+
+fn validate_proposal_contract(value: &serde_json::Value, filename_id: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    let Some(object) = value.as_object() else {
+        return vec!["proposal must be a JSON object".to_string()];
+    };
+
+    if !is_safe_proposal_id(filename_id) {
+        errors.push(format!(
+            "filename stem '{filename_id}' is not a safe proposal id"
+        ));
+    }
+
+    let schema_version = string_field(value, "schema_version", &mut errors);
+    if schema_version != "proposal.v1" {
+        errors.push("schema_version must be 'proposal.v1'".to_string());
+    }
+
+    let embedded_id = string_field(value, "id", &mut errors);
+    if embedded_id != filename_id {
+        errors.push("proposal id must match filename stem".to_string());
+    }
+
+    for field in [
+        "created_at",
+        "phase",
+        "title",
+        "summary",
+        "intent",
+        "secrets",
+    ] {
+        string_field(value, field, &mut errors);
+    }
+    for field in ["allowed_files", "forbidden_scope", "validation"] {
+        string_array_field(value, field, &mut errors);
+    }
+
+    match object
+        .get("network")
+        .and_then(|field_value| field_value.as_str())
+    {
+        Some("offline-only" | "local-only" | "allowed-external") => {}
+        _ => errors
+            .push("network must be one of offline-only, local-only, allowed-external".to_string()),
+    }
+
+    match object
+        .get("status")
+        .and_then(|field_value| field_value.as_str())
+    {
+        Some("draft" | "ready-for-review" | "rejected" | "approved-for-apply") => {}
+        _ => errors.push(
+            "status must be one of draft, ready-for-review, rejected, approved-for-apply"
+                .to_string(),
+        ),
+    }
+
+    match object
+        .get("changes")
+        .and_then(|field_value| field_value.as_array())
+    {
+        Some(changes) => {
+            for (index, change) in changes.iter().enumerate() {
+                if !change.is_object() {
+                    errors.push(format!("changes[{index}] must be an object"));
+                    continue;
+                }
+                string_field(change, "path", &mut errors);
+                string_field(change, "summary", &mut errors);
+                match change.get("action").and_then(|field_value| field_value.as_str()) {
+                    Some("add" | "modify" | "delete" | "rename" | "document") => {}
+                    _ => errors.push(format!(
+                        "changes[{index}].action must be one of add, modify, delete, rename, document"
+                    )),
+                }
+            }
+        }
+        None => errors.push("field 'changes' must be an array of objects".to_string()),
+    }
+
+    errors
+}
+
+fn handle_proposals_list(_json_output: bool) -> Result<(), String> {
+    let mut proposals = Vec::new();
+    for (id, rel_path, path) in list_proposal_files()? {
+        let parsed = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+        let errors = parsed
+            .as_ref()
+            .map(|value| validate_proposal_contract(value, &id))
+            .unwrap_or_else(|| vec!["proposal JSON is malformed".to_string()]);
+
+        proposals.push(serde_json::json!({
+            "id": id,
+            "path": rel_path,
+            "created_at": parsed.as_ref().and_then(|value| value.get("created_at")).cloned().unwrap_or(serde_json::Value::Null),
+            "phase": parsed.as_ref().and_then(|value| value.get("phase")).cloned().unwrap_or(serde_json::Value::Null),
+            "title": parsed.as_ref().and_then(|value| value.get("title")).cloned().unwrap_or(serde_json::Value::Null),
+            "status": parsed.as_ref().and_then(|value| value.get("status")).cloned().unwrap_or(serde_json::Value::Null),
+            "valid": errors.is_empty()
+        }));
+    }
+
+    let count = proposals.len();
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "proposals list",
+            "schema_version": "0.1",
+            "proposals": proposals,
+            "count": count
+        })
+    );
+    Ok(())
+}
+
+fn handle_proposals_inspect(id: &str, max_bytes: usize, _json_output: bool) -> Result<(), String> {
+    let (resolved_id, rel_path, path) = resolve_proposal_id(id)?;
+    let content = read_proposal_bounded(&path, max_bytes)?;
+    let proposal: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("failed to parse proposal artifact '{rel_path}': {e}"))?;
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "proposals inspect",
+            "schema_version": "0.1",
+            "id": resolved_id,
+            "path": rel_path,
+            "max_bytes": max_bytes,
+            "truncated": false,
+            "proposal": proposal
+        })
+    );
+    Ok(())
+}
+
+fn handle_proposals_validate(id: &str, _json_output: bool) -> Result<(), String> {
+    let (resolved_id, rel_path, path) = resolve_proposal_id(id)?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read proposal artifact '{rel_path}': {e}"))?;
+    let (valid, errors) = match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(value) => {
+            let errors = validate_proposal_contract(&value, &resolved_id);
+            (errors.is_empty(), errors)
+        }
+        Err(e) => (false, vec![format!("proposal JSON is malformed: {e}")]),
+    };
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "proposals validate",
+            "schema_version": "0.1",
+            "id": resolved_id,
+            "path": rel_path,
+            "valid": valid,
+            "errors": errors
         })
     );
     Ok(())

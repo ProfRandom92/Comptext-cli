@@ -33,6 +33,41 @@ impl Drop for FileGuard {
     }
 }
 
+struct DirGuard {
+    path: std::path::PathBuf,
+    backup: std::path::PathBuf,
+    moved: bool,
+}
+
+impl DirGuard {
+    fn new(path: impl Into<std::path::PathBuf>) -> Self {
+        let path = path.into();
+        let backup = path.with_extension(format!("smoke-backup-{}", std::process::id()));
+        let moved = if path.exists() {
+            let _ = std::fs::remove_dir_all(&backup);
+            std::fs::rename(&path, &backup).is_ok()
+        } else {
+            false
+        };
+        Self {
+            path,
+            backup,
+            moved,
+        }
+    }
+}
+
+impl Drop for DirGuard {
+    fn drop(&mut self) {
+        if self.path.exists() {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+        if self.moved && self.backup.exists() {
+            let _ = std::fs::rename(&self.backup, &self.path);
+        }
+    }
+}
+
 fn run(args: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_ctxt"))
         .args(args)
@@ -40,6 +75,41 @@ fn run(args: &[&str]) -> String {
         .expect("ctxt binary should run");
     assert!(output.status.success(), "command failed: {args:?}");
     String::from_utf8(output.stdout).expect("stdout should be UTF-8")
+}
+
+fn run_fail(args: &[&str]) -> serde_json::Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(args)
+        .output()
+        .expect("ctxt binary should run");
+    assert!(!output.status.success(), "command should fail: {args:?}");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    serde_json::from_str(&stderr).expect("error JSON should parse")
+}
+
+fn valid_phase_4f_proposal(id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": "proposal.v1",
+        "id": id,
+        "created_at": "2026-06-13T12:00:00Z",
+        "phase": "Phase 4f",
+        "title": "Proposal Artifact Contract",
+        "summary": "Read-only proposal artifact contract.",
+        "intent": "Prepare proposal-before-apply inspection without applying changes.",
+        "allowed_files": ["src/cli.rs"],
+        "forbidden_scope": ["proposal apply"],
+        "changes": [
+            {
+                "path": "src/cli.rs",
+                "action": "modify",
+                "summary": "Add read-only proposal commands."
+            }
+        ],
+        "validation": ["cargo test"],
+        "network": "offline-only",
+        "secrets": "no secrets read",
+        "status": "draft"
+    })
 }
 
 #[test]
@@ -352,6 +422,291 @@ fn propose_json_reports_proposal_artifacts() {
     assert_eq!(value["latest_reference"], "proposals/proposal.latest.json");
     assert_eq!(value["operation_count"], 1);
     assert!(slugified_path.exists());
+}
+
+#[test]
+fn proposals_list_missing_root_returns_empty() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+
+    let stdout = run(&["--json", "proposals", "list"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals list JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "proposals list");
+    assert_eq!(value["count"], 0);
+    assert!(value["proposals"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn proposals_list_shows_valid_proposal() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let id = "20260613T120000Z-phase-4f-example";
+    std::fs::write(
+        format!("proposals/{id}.json"),
+        serde_json::to_string_pretty(&valid_phase_4f_proposal(id)).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "proposals", "list"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals list JSON should parse");
+    let proposals = value["proposals"].as_array().unwrap();
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["count"], 1);
+    assert_eq!(proposals[0]["id"], id);
+    assert_eq!(
+        proposals[0]["path"],
+        "proposals/20260613T120000Z-phase-4f-example.json"
+    );
+    assert_eq!(proposals[0]["valid"], true);
+}
+
+#[test]
+fn proposals_inspect_latest_reads_proposal_object() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let older_id = "20260613T110000Z-phase-4f-example";
+    let latest_id = "20260613T120000Z-phase-4f-example";
+    std::fs::write(
+        format!("proposals/{older_id}.json"),
+        serde_json::to_string_pretty(&valid_phase_4f_proposal(older_id)).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        format!("proposals/{latest_id}.json"),
+        serde_json::to_string_pretty(&valid_phase_4f_proposal(latest_id)).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&[
+        "--json",
+        "proposals",
+        "inspect",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals inspect JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "proposals inspect");
+    assert_eq!(value["id"], latest_id);
+    assert_eq!(value["proposal"]["id"], latest_id);
+    assert_eq!(value["truncated"], false);
+}
+
+#[test]
+fn proposals_inspect_latest_flag_id_matches_positional() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let id = "20260613T120000Z-phase-4f-example";
+    std::fs::write(
+        format!("proposals/{id}.json"),
+        serde_json::to_string_pretty(&valid_phase_4f_proposal(id)).unwrap(),
+    )
+    .unwrap();
+
+    let positional_stdout = run(&[
+        "--json",
+        "proposals",
+        "inspect",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let flag_stdout = run(&[
+        "--json",
+        "proposals",
+        "inspect",
+        "--id",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let positional: serde_json::Value =
+        serde_json::from_str(&positional_stdout).expect("positional JSON should parse");
+    let flag: serde_json::Value =
+        serde_json::from_str(&flag_stdout).expect("flag JSON should parse");
+
+    assert_eq!(positional["id"], flag["id"]);
+    assert_eq!(positional["path"], flag["path"]);
+}
+
+#[test]
+fn proposals_validate_latest_accepts_valid_contract() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let id = "20260613T120000Z-phase-4f-example";
+    std::fs::write(
+        format!("proposals/{id}.json"),
+        serde_json::to_string_pretty(&valid_phase_4f_proposal(id)).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "proposals", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals validate JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "proposals validate");
+    assert_eq!(value["valid"], true);
+    assert!(value["errors"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn proposals_validate_latest_flag_id_accepts_valid_contract() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let id = "20260613T120000Z-phase-4f-example";
+    std::fs::write(
+        format!("proposals/{id}.json"),
+        serde_json::to_string_pretty(&valid_phase_4f_proposal(id)).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "proposals", "validate", "--id", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals validate JSON should parse");
+
+    assert_eq!(value["id"], id);
+    assert_eq!(value["valid"], true);
+}
+
+#[test]
+fn proposals_validate_missing_required_field_returns_invalid() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let id = "20260613T120000Z-phase-4f-example";
+    let mut proposal = valid_phase_4f_proposal(id);
+    proposal.as_object_mut().unwrap().remove("intent");
+    std::fs::write(
+        format!("proposals/{id}.json"),
+        serde_json::to_string_pretty(&proposal).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "proposals", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("intent")));
+}
+
+#[test]
+fn proposals_validate_id_mismatch_returns_invalid() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    let id = "20260613T120000Z-phase-4f-example";
+    let mut proposal = valid_phase_4f_proposal(id);
+    proposal["id"] = serde_json::json!("20260613T120000Z-other");
+    std::fs::write(
+        format!("proposals/{id}.json"),
+        serde_json::to_string_pretty(&proposal).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "proposals", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("match filename stem")));
+}
+
+#[test]
+fn proposals_validate_malformed_json_returns_invalid() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    std::fs::create_dir_all("proposals").unwrap();
+    std::fs::write(
+        "proposals/20260613T120000Z-phase-4f-example.json",
+        "{not valid json",
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "proposals", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("proposals validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("malformed")));
+}
+
+#[test]
+fn proposals_reject_path_traversal_id_with_json_error() {
+    let _guard = test_lock();
+    let _proposal_dir_guard = DirGuard::new("proposals");
+    let value = run_fail(&["--json", "proposals", "inspect", "--id", "../outside"]);
+
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid proposal id"));
+}
+
+#[test]
+fn proposals_reject_invalid_max_bytes_with_json_error() {
+    let _guard = test_lock();
+    let value = run_fail(&[
+        "--json",
+        "proposals",
+        "inspect",
+        "latest",
+        "--max-bytes",
+        "nope",
+    ]);
+
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid --max-bytes"));
+}
+
+#[test]
+fn proposals_reject_duplicate_id_with_json_error() {
+    let _guard = test_lock();
+    let value = run_fail(&[
+        "--json",
+        "proposals",
+        "validate",
+        "--id",
+        "latest",
+        "--id",
+        "latest",
+    ]);
+
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("duplicate --id"));
 }
 
 #[test]

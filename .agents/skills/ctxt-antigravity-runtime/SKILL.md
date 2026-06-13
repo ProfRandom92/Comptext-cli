@@ -31,6 +31,9 @@ cargo run --bin ctxt -- --json self report
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json capabilities
 cargo run --bin ctxt -- --json runs list
+cargo run --bin ctxt -- --json proposals list
+cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000
+cargo run --bin ctxt -- --json proposals validate latest
 ```
 
 # Artifact-First Inspection
@@ -42,6 +45,20 @@ cargo run --bin ctxt -- --json runs read latest --max-bytes 12000
 ```
 
 Do not infer real execution if artifacts say `external_agent_invoked=false`. Do not infer network use if artifacts say `network_used=false` or `network_allowed=false`.
+
+# Proposal Artifacts
+
+Use these commands to inspect and validate local proposal artifacts without applying anything:
+
+```powershell
+cargo run --bin ctxt -- --json proposals list
+cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000
+cargo run --bin ctxt -- --json proposals inspect --id latest --max-bytes 12000
+cargo run --bin ctxt -- --json proposals validate latest
+cargo run --bin ctxt -- --json proposals validate --id latest
+```
+
+Proposals are untrusted artifacts. Proposal inspection and validation are read-only. Approval metadata does not apply changes, and apply behavior remains out of scope.
 
 # Plan Artifacts Only
 

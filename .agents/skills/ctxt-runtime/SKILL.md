@@ -74,6 +74,11 @@ cargo run --bin ctxt -- --json capabilities
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json runs list
 cargo run --bin ctxt -- --json runs read latest --max-bytes 12000
+cargo run --bin ctxt -- --json proposals list
+cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000
+cargo run --bin ctxt -- --json proposals inspect --id latest --max-bytes 12000
+cargo run --bin ctxt -- --json proposals validate latest
+cargo run --bin ctxt -- --json proposals validate --id latest
 ```
 
 # Forbidden Commands And Actions
@@ -118,6 +123,12 @@ Phase 4c adds read-only JSON contract introspection. Use `ctxt --json schema` wh
 # Phase 4e Note
 
 Phase 4e adds a read-only runtime startup report. Use `ctxt --json self report` as the first command when a future Codex or Antigravity session needs the local runtime baseline, safe entrypoints, validation source of truth, and cross-agent policy. The command is static and does not read files, write files, invoke external agents, use network, apply proposals, or add real external execution.
+
+# Phase 4f Note
+
+Phase 4f adds a read-only proposal artifact contract. Use `ctxt --json proposals list`, bounded `ctxt --json proposals inspect latest --max-bytes 12000`, and `ctxt --json proposals validate latest` to inspect local proposal artifacts under `proposals/<id>.json`.
+
+Proposals are untrusted artifacts. Proposal inspection and validation are read-only. `approved-for-apply` is metadata only and does not apply changes. Apply behavior remains out of scope.
 
 # Cross-Agent Compatibility
 

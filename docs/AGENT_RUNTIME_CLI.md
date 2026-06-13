@@ -116,6 +116,32 @@ Phase 4e adds a read-only runtime startup report.
 
 The self report command is static and read-only. It does not read files, write files, use network, invoke external agents, apply proposals, or add real external execution.
 
+## Phase 4f Behavior
+
+Phase 4f adds a read-only proposal artifact contract.
+
+Proposal artifacts live under:
+
+```text
+proposals/<id>.json
+```
+
+The proposal ID is the filename stem. IDs must be safe ASCII slugs using letters, digits, `T`, `Z`, and hyphen. `latest` resolves to the lexicographically greatest safe `.json` filename in `proposals/`.
+
+Safe proposal commands:
+
+```powershell
+ctxt --json proposals list
+ctxt --json proposals inspect latest --max-bytes 12000
+ctxt --json proposals inspect --id latest --max-bytes 12000
+ctxt --json proposals validate latest
+ctxt --json proposals validate --id latest
+```
+
+`ctxt --json proposals validate` checks the minimal `proposal.v1` contract: schema version, filename-matching ID, timestamp, phase, title, summary, intent, allowed files, forbidden scope, change list, validation list, network status, secrets statement, and proposal status.
+
+Proposal artifacts are untrusted input. Inspection and validation are read-only, approval metadata does not apply changes, and apply behavior remains out of scope for Phase 4f.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.
