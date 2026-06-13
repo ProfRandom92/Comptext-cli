@@ -89,6 +89,25 @@ Phase 4c adds read-only JSON contract introspection.
 
 The schema command returns static JSON only. It does not read files, write files, use network, invoke external agents, apply proposals, or add real external execution.
 
+## Phase 4d Behavior
+
+Phase 4d adds cross-agent compatibility guidance only.
+
+`ctxt` is the common source of truth for Codex and Antigravity. Both agents must use the same safe JSON commands rather than separate runtime behavior:
+
+```powershell
+cargo run --bin ctxt -- --json schema
+cargo run --bin ctxt -- --json capabilities
+cargo run --bin ctxt -- --json runs list
+cargo run --bin ctxt -- --json runs read latest --max-bytes 12000
+cargo run --bin ctxt -- --json agent discover
+cargo run --bin ctxt -- --json agent run --kind codex --task "..." --allow-external --proposal-only
+cargo run --bin ctxt -- --json agent run --kind antigravity --task "..." --allow-external --proposal-only
+cargo run --bin ctxt -- --json validate --run
+```
+
+Phase 4d does not add plugin packaging, MCP servers, hooks, network, apply, or real external execution. Antigravity guidance is an adapter to `ctxt`, not a separate runtime, policy, or execution system.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

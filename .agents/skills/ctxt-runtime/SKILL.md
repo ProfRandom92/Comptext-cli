@@ -114,6 +114,14 @@ Phase 4b adds read-only agent-friendly CLI introspection. Use `ctxt --json capab
 
 Phase 4c adds read-only JSON contract introspection. Use `ctxt --json schema` when a future agent needs stable output shape summaries for supported JSON commands. The schema command is static and does not read files, write files, invoke external agents, use network, apply proposals, or add real external execution.
 
+# Cross-Agent Compatibility
+
+Codex and Antigravity should both route through `ctxt`.
+
+Use `ctxt --json schema` first to inspect contracts. Use `ctxt --json capabilities` to inspect supported features and disabled gates. Use `ctxt --json runs list` and bounded `ctxt --json runs read` for artifact-first state inspection.
+
+Use proposal-only agent run commands only to create plan artifacts. Do not infer real execution if artifacts say `external_agent_invoked=false`. Do not bypass `ctxt` by invoking Codex CLI or Antigravity CLI directly for tasks.
+
 # Artifact-First Behavior
 
 - Prefer `.comptext/runs/latest/run.json` before making claims about latest agent state.
