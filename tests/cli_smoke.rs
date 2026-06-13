@@ -112,6 +112,49 @@ fn valid_phase_4f_proposal(id: &str) -> serde_json::Value {
     })
 }
 
+fn valid_phase_5b_review(id: &str, role_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": "review.v1",
+        "id": id,
+        "created_at": "2026-06-13T15:00:00Z",
+        "phase": "Phase 5b",
+        "role_id": role_id,
+        "target": "ctxt --json subagents list",
+        "summary": "Static contract review fixture.",
+        "findings": [
+            {
+                "id": "finding-1",
+                "severity": "info",
+                "summary": "The contract is static."
+            }
+        ],
+        "risks": [
+            {
+                "id": "risk-1",
+                "severity": "low",
+                "summary": "No runtime execution is represented."
+            }
+        ],
+        "recommendations": [
+            {
+                "id": "recommendation-1",
+                "action": "keep",
+                "summary": "Keep review artifacts contract-only."
+            }
+        ],
+        "validation_refs": ["cargo test"],
+        "safety_flags": {
+            "network_used": false,
+            "external_agents_invoked": false,
+            "subagents_executed": false,
+            "apply_performed": false,
+            "git_write_performed": false,
+            "secrets_accessed": false
+        },
+        "status": "draft"
+    })
+}
+
 #[test]
 fn help_mentions_safety_defaults() {
     let _guard = test_lock();
@@ -710,6 +753,361 @@ fn proposals_reject_duplicate_id_with_json_error() {
 }
 
 #[test]
+fn reviews_list_missing_root_returns_empty() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+
+    let stdout = run(&["--json", "reviews", "list"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews list JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "reviews list");
+    assert_eq!(value["count"], 0);
+    assert!(value["reviews"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn reviews_list_shows_valid_review() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&valid_phase_5b_review(id, "safety-reviewer")).unwrap(),
+    )
+    .unwrap();
+    std::fs::write("reviews/ignored.txt", "ignore me").unwrap();
+
+    let stdout = run(&["--json", "reviews", "list"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews list JSON should parse");
+    let reviews = value["reviews"].as_array().unwrap();
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["count"], 1);
+    assert_eq!(reviews[0]["id"], id);
+    assert_eq!(
+        reviews[0]["path"],
+        "reviews/20260613T150000Z-phase-5b-safety.review.json"
+    );
+    assert_eq!(reviews[0]["role_id"], "safety-reviewer");
+    assert_eq!(reviews[0]["target"], "ctxt --json subagents list");
+    assert_eq!(reviews[0]["valid"], true);
+}
+
+#[test]
+fn reviews_inspect_latest_reads_review_object() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let older_id = "20260613T140000Z-phase-5b-docs";
+    let latest_id = "20260613T150000Z-phase-5b-safety";
+    std::fs::write(
+        format!("reviews/{older_id}.review.json"),
+        serde_json::to_string_pretty(&valid_phase_5b_review(older_id, "docs-reviewer")).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        format!("reviews/{latest_id}.review.json"),
+        serde_json::to_string_pretty(&valid_phase_5b_review(latest_id, "safety-reviewer")).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&[
+        "--json",
+        "reviews",
+        "inspect",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews inspect JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "reviews inspect");
+    assert_eq!(value["id"], latest_id);
+    assert_eq!(value["review"]["id"], latest_id);
+    assert_eq!(value["truncated"], false);
+}
+
+#[test]
+fn reviews_inspect_latest_flag_id_matches_positional() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&valid_phase_5b_review(id, "safety-reviewer")).unwrap(),
+    )
+    .unwrap();
+
+    let positional_stdout = run(&[
+        "--json",
+        "reviews",
+        "inspect",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let flag_stdout = run(&[
+        "--json",
+        "reviews",
+        "inspect",
+        "--id",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let positional: serde_json::Value =
+        serde_json::from_str(&positional_stdout).expect("positional JSON should parse");
+    let flag: serde_json::Value =
+        serde_json::from_str(&flag_stdout).expect("flag JSON should parse");
+
+    assert_eq!(positional["id"], flag["id"]);
+    assert_eq!(positional["path"], flag["path"]);
+}
+
+#[test]
+fn reviews_validate_latest_accepts_valid_contract() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&valid_phase_5b_review(id, "safety-reviewer")).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "reviews", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews validate JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "reviews validate");
+    assert_eq!(value["valid"], true);
+    assert!(value["errors"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn reviews_validate_latest_flag_id_accepts_valid_contract() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&valid_phase_5b_review(id, "safety-reviewer")).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "reviews", "validate", "--id", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews validate JSON should parse");
+
+    assert_eq!(value["id"], id);
+    assert_eq!(value["valid"], true);
+}
+
+#[test]
+fn reviews_validate_missing_required_field_returns_invalid() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    let mut review = valid_phase_5b_review(id, "safety-reviewer");
+    review.as_object_mut().unwrap().remove("target");
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&review).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "reviews", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("target")));
+}
+
+#[test]
+fn reviews_validate_id_mismatch_returns_invalid() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    let mut review = valid_phase_5b_review(id, "safety-reviewer");
+    review["id"] = serde_json::json!("20260613T150000Z-other");
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&review).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "reviews", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("filename-derived id")));
+}
+
+#[test]
+fn reviews_validate_malformed_json_returns_invalid_and_listable() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    std::fs::write(format!("reviews/{id}.review.json"), "{not valid json").unwrap();
+
+    let list_stdout = run(&["--json", "reviews", "list"]);
+    let list_value: serde_json::Value =
+        serde_json::from_str(&list_stdout).expect("reviews list JSON should parse");
+    assert_eq!(list_value["reviews"][0]["valid"], false);
+
+    let validate_stdout = run(&["--json", "reviews", "validate", "latest"]);
+    let validate_value: serde_json::Value =
+        serde_json::from_str(&validate_stdout).expect("reviews validate JSON should parse");
+    assert_eq!(validate_value["valid"], false);
+    assert!(validate_value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("malformed")));
+}
+
+#[test]
+fn reviews_reject_path_traversal_id_with_json_error() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    let value = run_fail(&["--json", "reviews", "inspect", "--id", "../outside"]);
+
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid review id"));
+}
+
+#[test]
+fn reviews_reject_invalid_max_bytes_with_json_error() {
+    let _guard = test_lock();
+    let value = run_fail(&[
+        "--json",
+        "reviews",
+        "inspect",
+        "latest",
+        "--max-bytes",
+        "nope",
+    ]);
+
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid --max-bytes"));
+}
+
+#[test]
+fn reviews_reject_duplicate_id_with_json_error() {
+    let _guard = test_lock();
+    let value = run_fail(&[
+        "--json", "reviews", "validate", "--id", "latest", "--id", "latest",
+    ]);
+
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("duplicate --id"));
+}
+
+#[test]
+fn reviews_validate_true_safety_flag_returns_invalid() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    let mut review = valid_phase_5b_review(id, "safety-reviewer");
+    review["safety_flags"]["network_used"] = serde_json::json!(true);
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&review).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "reviews", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("network_used")));
+}
+
+#[test]
+fn reviews_validate_invalid_role_id_returns_invalid() {
+    let _guard = test_lock();
+    let _review_dir_guard = DirGuard::new("reviews");
+    std::fs::create_dir_all("reviews").unwrap();
+    let id = "20260613T150000Z-phase-5b-safety";
+    let review = valid_phase_5b_review(id, "unknown-reviewer");
+    std::fs::write(
+        format!("reviews/{id}.review.json"),
+        serde_json::to_string_pretty(&review).unwrap(),
+    )
+    .unwrap();
+
+    let stdout = run(&["--json", "reviews", "validate", "latest"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("reviews validate JSON should parse");
+
+    assert_eq!(value["valid"], false);
+    assert!(value["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("role_id")));
+}
+
+#[test]
+fn reviews_unknown_commands_fail_with_json_errors() {
+    let _guard = test_lock();
+    let cases = [
+        vec!["--json", "reviews"],
+        vec!["--json", "reviews", "inspect"],
+        vec!["--json", "reviews", "validate"],
+        vec!["--json", "reviews", "run"],
+        vec!["--json", "reviews", "generate"],
+        vec!["--json", "reviews", "apply"],
+        vec!["--json", "reviews", "list", "extra"],
+        vec!["--json", "reviews", "unknown"],
+    ];
+
+    for args in cases {
+        let value = run_fail(&args);
+        assert_eq!(value["ok"], false);
+        assert!(value["error"]["message"].is_string());
+    }
+}
+
+#[test]
 fn validate_json_lists_standard_commands() {
     let _guard = test_lock();
     let stdout = run(&["--json", "validate"]);
@@ -780,6 +1178,9 @@ fn capabilities_json_reports_phase_four_b_introspection() {
     assert!(phases.iter().any(|phase| {
         phase["phase"] == "5a" && phase["name"] == "deterministic subagent role contract"
     }));
+    assert!(phases.iter().any(|phase| {
+        phase["phase"] == "5b" && phase["name"] == "deterministic review artifact contract"
+    }));
     assert_eq!(value["features"]["real_external_execution"], false);
     assert_eq!(value["features"]["network_gate"], false);
     assert_eq!(value["features"]["apply_gate"], false);
@@ -803,10 +1204,23 @@ fn capabilities_json_reports_proposal_capabilities() {
     assert_eq!(features["subagent_role_contract"], true);
     assert_eq!(features["subagent_execution"], false);
     assert_eq!(features["subagent_runtime_orchestration"], false);
+    assert_eq!(features["reviews_list"], true);
+    assert_eq!(features["reviews_inspect"], true);
+    assert_eq!(features["reviews_validate"], true);
+    assert_eq!(features["review_artifact_contract"], true);
+    assert_eq!(features["review_generation"], false);
+    assert_eq!(features["review_apply"], false);
     assert_eq!(features["proposal_apply"], false);
     assert_eq!(features["proposal_generation"], false);
 
-    for command_name in ["proposals list", "proposals inspect", "proposals validate"] {
+    for command_name in [
+        "proposals list",
+        "proposals inspect",
+        "proposals validate",
+        "reviews list",
+        "reviews inspect",
+        "reviews validate",
+    ] {
         let command = commands
             .iter()
             .find(|command| command["name"] == command_name)
@@ -853,6 +1267,10 @@ fn schema_json_reports_stable_contracts() {
         "proposals validate",
         "proposal.v1 artifact",
         "subagents list",
+        "reviews list",
+        "reviews inspect",
+        "reviews validate",
+        "review.v1 artifact",
         "agent discover",
         "agent run --allow-external --proposal-only",
         "validate",
@@ -924,6 +1342,76 @@ fn schema_json_reports_subagent_contract_details() {
             .iter()
             .any(|value| value == field));
     }
+}
+
+#[test]
+fn schema_json_reports_review_contract_details() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+    let contract_for = |command: &str| -> &serde_json::Value {
+        contracts
+            .iter()
+            .find(|contract| contract["command"] == command)
+            .unwrap_or_else(|| panic!("missing schema contract for {command}"))
+    };
+
+    for command in ["reviews list", "reviews inspect", "reviews validate"] {
+        let notes = contract_for(command)["notes"]
+            .as_array()
+            .expect("review command notes should be an array");
+        for expected_note in [
+            "read-only",
+            "no apply",
+            "no subagent execution",
+            "no network",
+            "no external agents",
+        ] {
+            assert!(
+                notes.iter().any(|note| note == expected_note),
+                "{command} should include safety note {expected_note}"
+            );
+        }
+    }
+
+    let artifact = contract_for("review.v1 artifact");
+    let required_fields = artifact["required_fields"]
+        .as_array()
+        .expect("review artifact required_fields should be an array");
+    for field in [
+        "schema_version",
+        "id",
+        "role_id",
+        "findings",
+        "risks",
+        "recommendations",
+        "validation_refs",
+        "safety_flags",
+        "status",
+    ] {
+        assert!(
+            required_fields.iter().any(|required| required == field),
+            "review.v1 artifact should require {field}"
+        );
+    }
+    assert!(artifact["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|note| note == "untrusted input"));
+    assert!(artifact["enums"]["role_id"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "safety-reviewer"));
+    assert!(artifact["safety_flag_fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "secrets_accessed"));
 }
 
 #[test]
@@ -1029,6 +1517,12 @@ fn self_report_json_reports_runtime_baseline() {
     assert_eq!(value["agent_policy"]["external_execution"], false);
     assert_eq!(value["agent_policy"]["subagent_execution"], false);
     assert_eq!(value["agent_policy"]["subagent_roles_contract_only"], true);
+    assert_eq!(value["agent_policy"]["review_generation"], false);
+    assert_eq!(value["agent_policy"]["review_apply"], false);
+    assert_eq!(
+        value["agent_policy"]["review_artifacts_contract_only"],
+        true
+    );
     assert_eq!(value["agent_policy"]["network_default"], "deny");
     assert_eq!(value["agent_policy"]["apply_automatic"], false);
     assert!(value["safe_entrypoints"]
@@ -1036,6 +1530,17 @@ fn self_report_json_reports_runtime_baseline() {
         .unwrap()
         .iter()
         .any(|entry| entry == "ctxt --json subagents list"));
+    for entry in [
+        "ctxt --json reviews list",
+        "ctxt --json reviews inspect latest --max-bytes 12000",
+        "ctxt --json reviews validate latest",
+    ] {
+        assert!(value["safe_entrypoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate == entry));
+    }
 }
 
 #[test]

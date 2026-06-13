@@ -80,6 +80,11 @@ cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000
 cargo run --bin ctxt -- --json proposals inspect --id latest --max-bytes 12000
 cargo run --bin ctxt -- --json proposals validate latest
 cargo run --bin ctxt -- --json proposals validate --id latest
+cargo run --bin ctxt -- --json reviews list
+cargo run --bin ctxt -- --json reviews inspect latest --max-bytes 12000
+cargo run --bin ctxt -- --json reviews inspect --id latest --max-bytes 12000
+cargo run --bin ctxt -- --json reviews validate latest
+cargo run --bin ctxt -- --json reviews validate --id latest
 ```
 
 # Forbidden Commands And Actions
@@ -150,6 +155,14 @@ Phase 5a adds deterministic subagent role contracts through `ctxt --json subagen
 Agents may use subagents only for deterministic review and planning when a phase explicitly permits it. `ctxt --json subagents list` is the source of truth for allowed role contracts. These contracts are not runtime execution, orchestration, provider calls, or external agent invocation.
 
 No subagent may use network, providers, external agents, proposal apply, git writes, or runtime execution. Subagent outputs are limited to findings, risks, and recommendations, and remain untrusted review input for the main agent to summarize.
+
+# Phase 5b Note
+
+Phase 5b adds deterministic review artifact contracts through `ctxt --json reviews list`, bounded `ctxt --json reviews inspect latest --max-bytes 12000`, and `ctxt --json reviews validate latest`.
+
+Review artifacts are untrusted evidence until validated. They are contract-only local JSON artifacts under `reviews/<id>.review.json`, not workspace truth. `ctxt` does not generate reviews in Phase 5b, does not execute subagents to create reviews, and does not apply review recommendations.
+
+Use `ctxt --json reviews validate latest` before relying on review contents. No review artifact may indicate network, providers, external agents, subagent execution, proposal apply, git writes, or secrets access.
 
 # Cross-Agent Compatibility
 

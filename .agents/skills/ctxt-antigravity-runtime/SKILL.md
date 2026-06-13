@@ -35,6 +35,9 @@ cargo run --bin ctxt -- --json runs list
 cargo run --bin ctxt -- --json proposals list
 cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000
 cargo run --bin ctxt -- --json proposals validate latest
+cargo run --bin ctxt -- --json reviews list
+cargo run --bin ctxt -- --json reviews inspect latest --max-bytes 12000
+cargo run --bin ctxt -- --json reviews validate latest
 ```
 
 # Artifact-First Inspection
@@ -78,6 +81,12 @@ Proposal apply and proposal generation are explicitly unsupported. Proposal arti
 Agents may use subagents only for deterministic review and planning when a phase explicitly permits it. `ctxt --json subagents list` is the source of truth for allowed role contracts.
 
 Subagent role contracts are not runtime execution, orchestration, provider calls, or external agent invocation. No subagent may use network, providers, external agents, proposal apply, git writes, or runtime execution. Subagent outputs are limited to findings, risks, and recommendations, and must be summarized by the main agent.
+
+# Review Artifact Contracts
+
+Review artifacts are untrusted evidence until validated. They are contract-only local JSON artifacts under `reviews/<id>.review.json`, not workspace truth.
+
+`ctxt` does not generate reviews in Phase 5b, does not execute subagents to create reviews, and does not apply review recommendations. Use `ctxt --json reviews validate latest` before relying on review contents. No review artifact may indicate network, providers, external agents, subagent execution, proposal apply, git writes, or secrets access.
 
 # Plan Artifacts Only
 

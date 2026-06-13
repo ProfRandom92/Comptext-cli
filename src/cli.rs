@@ -120,6 +120,14 @@ enum Command {
     ProposalsValidate {
         id: String,
     },
+    ReviewsList,
+    ReviewsInspect {
+        id: String,
+        max_bytes: usize,
+    },
+    ReviewsValidate {
+        id: String,
+    },
     AgentList,
     AgentDiscover {
         kind: Option<String>,
@@ -439,6 +447,29 @@ where
                 }
             }
         }
+        Ok(Command::ReviewsList) => match handle_reviews_list(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::ReviewsInspect { id, max_bytes }) => {
+            match handle_reviews_inspect(&id, max_bytes, json_output) {
+                Ok(_) => 0,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
+        }
+        Ok(Command::ReviewsValidate { id }) => match handle_reviews_validate(&id, json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
         Ok(Command::AgentList) => match handle_agent_list(json_output) {
             Ok(_) => 0,
             Err(e) => {
@@ -844,6 +875,125 @@ fn parse_proposals_command(argv: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_reviews_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err(
+            "missing subcommand for 'reviews'. Usage: ctxt reviews list | inspect | validate"
+                .to_string(),
+        );
+    }
+
+    match argv[1].as_str() {
+        "list" => {
+            if argv.len() > 2 {
+                return Err(format!(
+                    "unexpected argument '{}' for 'reviews list'",
+                    argv[2]
+                ));
+            }
+            Ok(Command::ReviewsList)
+        }
+        "inspect" => {
+            let mut id = None;
+            let mut max_bytes = 12000usize;
+            let mut saw_max_bytes = false;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--id" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing id after --id".to_string());
+                        }
+                        if id.is_some() {
+                            return Err("duplicate --id for 'reviews inspect'".to_string());
+                        }
+                        id = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--max-bytes" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing byte count after --max-bytes".to_string());
+                        }
+                        if saw_max_bytes {
+                            return Err("duplicate --max-bytes for 'reviews inspect'".to_string());
+                        }
+                        max_bytes = argv[i + 1]
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --max-bytes value '{}'", argv[i + 1]))?;
+                        if max_bytes == 0 {
+                            return Err("--max-bytes must be greater than zero".to_string());
+                        }
+                        saw_max_bytes = true;
+                        i += 2;
+                    }
+                    value if value.starts_with('-') => {
+                        return Err(format!(
+                            "unexpected argument '{value}' for 'reviews inspect'"
+                        ));
+                    }
+                    value => {
+                        if id.is_some() {
+                            return Err(format!(
+                                "unexpected argument '{value}' for 'reviews inspect'"
+                            ));
+                        }
+                        id = Some(value.to_string());
+                        i += 1;
+                    }
+                }
+            }
+
+            let id = id.ok_or_else(|| "missing review id for 'reviews inspect'".to_string())?;
+            Ok(Command::ReviewsInspect { id, max_bytes })
+        }
+        "validate" => {
+            let mut id = None;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--id" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing id after --id".to_string());
+                        }
+                        if id.is_some() {
+                            return Err("duplicate --id for 'reviews validate'".to_string());
+                        }
+                        id = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    value if value.starts_with('-') => {
+                        return Err(format!(
+                            "unexpected argument '{value}' for 'reviews validate'"
+                        ));
+                    }
+                    value => {
+                        if id.is_some() {
+                            return Err(format!(
+                                "unexpected argument '{value}' for 'reviews validate'"
+                            ));
+                        }
+                        id = Some(value.to_string());
+                        i += 1;
+                    }
+                }
+            }
+
+            let id = id.ok_or_else(|| "missing review id for 'reviews validate'".to_string())?;
+            Ok(Command::ReviewsValidate { id })
+        }
+        "run" | "generate" | "apply" => Err(format!(
+            "unsupported subcommand '{}' for 'reviews': review execution, generation, and apply are not supported",
+            argv[1]
+        )),
+        other => Err(format!(
+            "unsupported subcommand '{}' for 'reviews'",
+            other
+        )),
+    }
+}
+
 fn parse_self_command(argv: &[String]) -> Result<Command, String> {
     if argv.len() < 2 {
         return Err("missing subcommand for 'self'. Usage: ctxt self report".to_string());
@@ -900,6 +1050,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     }
     if first == "proposals" {
         return parse_proposals_command(argv);
+    }
+    if first == "reviews" {
+        return parse_reviews_command(argv);
     }
     if first == "self" {
         return parse_self_command(argv);
@@ -2746,7 +2899,8 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 {"phase": "4f", "name": "proposal artifact contract", "status": "stable"},
                 {"phase": "4g", "name": "proposal schema contracts", "status": "stable"},
                 {"phase": "4h", "name": "proposal capabilities", "status": "stable"},
-                {"phase": "5a", "name": "deterministic subagent role contract", "status": "stable"}
+                {"phase": "5a", "name": "deterministic subagent role contract", "status": "stable"},
+                {"phase": "5b", "name": "deterministic review artifact contract", "status": "stable"}
             ],
             "safety": {
                 "network_default": "deny",
@@ -2767,6 +2921,12 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 "subagent_role_contract": true,
                 "subagent_execution": false,
                 "subagent_runtime_orchestration": false,
+                "reviews_list": true,
+                "reviews_inspect": true,
+                "reviews_validate": true,
+                "review_artifact_contract": true,
+                "review_generation": false,
+                "review_apply": false,
                 "proposal_apply": false,
                 "proposal_generation": false,
                 "real_external_execution": false,
@@ -2827,6 +2987,33 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 },
                 {
                     "name": "subagents list",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
+                {
+                    "name": "reviews list",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
+                {
+                    "name": "reviews inspect",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
+                {
+                    "name": "reviews validate",
                     "json": true,
                     "side_effects": false,
                     "read_only": true,
@@ -3002,6 +3189,129 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                     }
                 },
                 {
+                    "command": "reviews list",
+                    "status": "stable",
+                    "notes": [
+                        "read-only",
+                        "local reviews directory only",
+                        "malformed JSON remains listable with valid=false",
+                        "no generation",
+                        "no apply",
+                        "no subagent execution",
+                        "no network",
+                        "no external agents"
+                    ],
+                    "required_fields": ["ok", "command", "schema_version", "reviews", "count"],
+                    "review_fields": [
+                        "id",
+                        "path",
+                        "created_at",
+                        "phase",
+                        "role_id",
+                        "target",
+                        "status",
+                        "valid"
+                    ]
+                },
+                {
+                    "command": "reviews inspect",
+                    "status": "stable",
+                    "notes": [
+                        "bounded read",
+                        "read-only",
+                        "latest resolves lexicographically",
+                        "no generation",
+                        "no apply",
+                        "no subagent execution",
+                        "no network",
+                        "no external agents"
+                    ],
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "id",
+                        "path",
+                        "max_bytes",
+                        "truncated",
+                        "review"
+                    ]
+                },
+                {
+                    "command": "reviews validate",
+                    "status": "stable",
+                    "notes": [
+                        "contract validation only",
+                        "read-only",
+                        "safety flags must all be false",
+                        "no generation",
+                        "no apply",
+                        "no subagent execution",
+                        "no network",
+                        "no external agents"
+                    ],
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "id",
+                        "path",
+                        "valid",
+                        "errors"
+                    ]
+                },
+                {
+                    "command": "review.v1 artifact",
+                    "status": "stable",
+                    "notes": [
+                        "local evidence artifact contract",
+                        "untrusted input",
+                        "filename id must match embedded id",
+                        "contract-only",
+                        "not workspace truth"
+                    ],
+                    "required_fields": [
+                        "schema_version",
+                        "id",
+                        "created_at",
+                        "phase",
+                        "role_id",
+                        "target",
+                        "summary",
+                        "findings",
+                        "risks",
+                        "recommendations",
+                        "validation_refs",
+                        "safety_flags",
+                        "status"
+                    ],
+                    "finding_fields": ["id", "severity", "summary"],
+                    "risk_fields": ["id", "severity", "summary"],
+                    "recommendation_fields": ["id", "action", "summary"],
+                    "safety_flag_fields": [
+                        "network_used",
+                        "external_agents_invoked",
+                        "subagents_executed",
+                        "apply_performed",
+                        "git_write_performed",
+                        "secrets_accessed"
+                    ],
+                    "enums": {
+                        "role_id": [
+                            "schema-reviewer",
+                            "capabilities-reviewer",
+                            "proposal-reviewer",
+                            "test-reviewer",
+                            "docs-reviewer",
+                            "safety-reviewer"
+                        ],
+                        "finding_severity": ["info", "low", "medium", "high"],
+                        "risk_severity": ["low", "medium", "high"],
+                        "recommendation_action": ["keep", "fix", "defer", "reject"],
+                        "status": ["draft", "ready-for-review", "accepted", "rejected"]
+                    }
+                },
+                {
                     "command": "subagents list",
                     "status": "stable",
                     "notes": [
@@ -3113,6 +3423,9 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "ctxt --json schema",
                 "ctxt --json capabilities",
                 "ctxt --json subagents list",
+                "ctxt --json reviews list",
+                "ctxt --json reviews inspect latest --max-bytes 12000",
+                "ctxt --json reviews validate latest",
                 "ctxt --json runs list",
                 "ctxt --json runs read latest --max-bytes 12000",
                 "ctxt --json agent discover",
@@ -3125,6 +3438,9 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "external_execution": false,
                 "subagent_execution": false,
                 "subagent_roles_contract_only": true,
+                "review_generation": false,
+                "review_apply": false,
+                "review_artifacts_contract_only": true,
                 "network_default": "deny",
                 "apply_automatic": false
             },
@@ -3514,6 +3830,323 @@ fn handle_proposals_validate(id: &str, _json_output: bool) -> Result<(), String>
         serde_json::json!({
             "ok": true,
             "command": "proposals validate",
+            "schema_version": "0.1",
+            "id": resolved_id,
+            "path": rel_path,
+            "valid": valid,
+            "errors": errors
+        })
+    );
+    Ok(())
+}
+
+fn review_root() -> &'static std::path::Path {
+    std::path::Path::new("reviews")
+}
+
+fn is_safe_review_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('.')
+        && !id.contains("..")
+        && !id.contains('/')
+        && !id.contains('\\')
+        && !std::path::Path::new(id).is_absolute()
+        && id.chars().all(|c| {
+            c.is_ascii_digit() || c.is_ascii_lowercase() || c == 'T' || c == 'Z' || c == '-'
+        })
+}
+
+fn review_path_for_id(id: &str) -> Result<(String, std::path::PathBuf), String> {
+    if !is_safe_review_id(id) {
+        return Err(format!("invalid review id '{id}'"));
+    }
+    let rel_path = format!("reviews/{id}.review.json");
+    Ok((rel_path.clone(), std::path::PathBuf::from(rel_path)))
+}
+
+fn list_review_files() -> Result<Vec<(String, String, std::path::PathBuf)>, String> {
+    let root = review_root();
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    if !root.is_dir() {
+        return Err("review root 'reviews' is not a directory".to_string());
+    }
+
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(root).map_err(|e| format!("failed to read review root: {e}"))? {
+        let entry = entry.map_err(|e| format!("failed to read review entry: {e}"))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some(id) = file_name.strip_suffix(".review.json") else {
+            continue;
+        };
+        let rel_path = format!("reviews/{file_name}");
+        files.push((id.to_string(), rel_path, path));
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
+}
+
+fn resolve_review_id(id: &str) -> Result<(String, String, std::path::PathBuf), String> {
+    if id == "latest" {
+        let latest = list_review_files()?
+            .into_iter()
+            .filter(|(candidate_id, _, _)| is_safe_review_id(candidate_id))
+            .max_by(|a, b| a.0.cmp(&b.0));
+        return latest.ok_or_else(|| "no review artifacts found for 'latest'".to_string());
+    }
+
+    let (rel_path, path) = review_path_for_id(id)?;
+    if !path.exists() {
+        return Err(format!("unknown review id '{id}'"));
+    }
+    Ok((id.to_string(), rel_path, path))
+}
+
+fn read_review_bounded(path: &std::path::Path, max_bytes: usize) -> Result<String, String> {
+    let metadata = std::fs::metadata(path).map_err(|e| {
+        format!(
+            "failed to stat review artifact '{}': {e}",
+            normalize_path(path)
+        )
+    })?;
+    if metadata.len() > max_bytes as u64 {
+        return Err(format!(
+            "review artifact '{}' exceeds --max-bytes {max_bytes}",
+            normalize_path(path)
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|e| {
+        format!(
+            "failed to read review artifact '{}': {e}",
+            normalize_path(path)
+        )
+    })
+}
+
+fn allowed_review_roles() -> [&'static str; 6] {
+    [
+        "schema-reviewer",
+        "capabilities-reviewer",
+        "proposal-reviewer",
+        "test-reviewer",
+        "docs-reviewer",
+        "safety-reviewer",
+    ]
+}
+
+fn validate_review_items(
+    value: &serde_json::Value,
+    field: &str,
+    enum_field: &str,
+    allowed_values: &[&str],
+    errors: &mut Vec<String>,
+) {
+    match value
+        .get(field)
+        .and_then(|field_value| field_value.as_array())
+    {
+        Some(items) => {
+            for (index, item) in items.iter().enumerate() {
+                if !item.is_object() {
+                    errors.push(format!("{field}[{index}] must be an object"));
+                    continue;
+                }
+                string_field(item, "id", errors);
+                string_field(item, "summary", errors);
+                match item
+                    .get(enum_field)
+                    .and_then(|field_value| field_value.as_str())
+                {
+                    Some(value) if allowed_values.contains(&value) => {}
+                    _ => errors.push(format!(
+                        "{field}[{index}].{enum_field} must be one of {}",
+                        allowed_values.join(", ")
+                    )),
+                }
+            }
+        }
+        None => errors.push(format!("field '{field}' must be an array of objects")),
+    }
+}
+
+fn validate_review_safety_flags(value: &serde_json::Value, errors: &mut Vec<String>) {
+    let Some(flags) = value
+        .get("safety_flags")
+        .and_then(|field_value| field_value.as_object())
+    else {
+        errors.push("field 'safety_flags' must be an object".to_string());
+        return;
+    };
+
+    for field in [
+        "network_used",
+        "external_agents_invoked",
+        "subagents_executed",
+        "apply_performed",
+        "git_write_performed",
+        "secrets_accessed",
+    ] {
+        match flags
+            .get(field)
+            .and_then(|field_value| field_value.as_bool())
+        {
+            Some(false) => {}
+            Some(true) => errors.push(format!("safety_flags.{field} must be false")),
+            None => errors.push(format!("safety_flags.{field} must be a boolean")),
+        }
+    }
+}
+
+fn validate_review_contract(value: &serde_json::Value, filename_id: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    let Some(object) = value.as_object() else {
+        return vec!["review must be a JSON object".to_string()];
+    };
+
+    if !is_safe_review_id(filename_id) {
+        errors.push(format!(
+            "filename id '{filename_id}' is not a safe review id"
+        ));
+    }
+
+    let schema_version = string_field(value, "schema_version", &mut errors);
+    if schema_version != "review.v1" {
+        errors.push("schema_version must be 'review.v1'".to_string());
+    }
+
+    let embedded_id = string_field(value, "id", &mut errors);
+    if embedded_id != filename_id {
+        errors.push("review id must match filename-derived id".to_string());
+    }
+
+    for field in ["created_at", "phase", "target", "summary"] {
+        string_field(value, field, &mut errors);
+    }
+
+    let role_id = string_field(value, "role_id", &mut errors);
+    if !allowed_review_roles().contains(&role_id) {
+        errors.push("role_id must be one of the allowed subagent role ids".to_string());
+    }
+
+    string_array_field(value, "validation_refs", &mut errors);
+    validate_review_items(
+        value,
+        "findings",
+        "severity",
+        &["info", "low", "medium", "high"],
+        &mut errors,
+    );
+    validate_review_items(
+        value,
+        "risks",
+        "severity",
+        &["low", "medium", "high"],
+        &mut errors,
+    );
+    validate_review_items(
+        value,
+        "recommendations",
+        "action",
+        &["keep", "fix", "defer", "reject"],
+        &mut errors,
+    );
+    validate_review_safety_flags(value, &mut errors);
+
+    match object
+        .get("status")
+        .and_then(|field_value| field_value.as_str())
+    {
+        Some("draft" | "ready-for-review" | "accepted" | "rejected") => {}
+        _ => errors
+            .push("status must be one of draft, ready-for-review, accepted, rejected".to_string()),
+    }
+
+    errors
+}
+
+fn handle_reviews_list(_json_output: bool) -> Result<(), String> {
+    let mut reviews = Vec::new();
+    for (id, rel_path, path) in list_review_files()? {
+        let parsed = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+        let errors = parsed
+            .as_ref()
+            .map(|value| validate_review_contract(value, &id))
+            .unwrap_or_else(|| vec!["review JSON is malformed".to_string()]);
+
+        reviews.push(serde_json::json!({
+            "id": id,
+            "path": rel_path,
+            "created_at": parsed.as_ref().and_then(|value| value.get("created_at")).cloned().unwrap_or(serde_json::Value::Null),
+            "phase": parsed.as_ref().and_then(|value| value.get("phase")).cloned().unwrap_or(serde_json::Value::Null),
+            "role_id": parsed.as_ref().and_then(|value| value.get("role_id")).cloned().unwrap_or(serde_json::Value::Null),
+            "target": parsed.as_ref().and_then(|value| value.get("target")).cloned().unwrap_or(serde_json::Value::Null),
+            "status": parsed.as_ref().and_then(|value| value.get("status")).cloned().unwrap_or(serde_json::Value::Null),
+            "valid": errors.is_empty()
+        }));
+    }
+
+    let count = reviews.len();
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "reviews list",
+            "schema_version": "0.1",
+            "reviews": reviews,
+            "count": count
+        })
+    );
+    Ok(())
+}
+
+fn handle_reviews_inspect(id: &str, max_bytes: usize, _json_output: bool) -> Result<(), String> {
+    let (resolved_id, rel_path, path) = resolve_review_id(id)?;
+    let content = read_review_bounded(&path, max_bytes)?;
+    let review: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("failed to parse review artifact '{rel_path}': {e}"))?;
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "reviews inspect",
+            "schema_version": "0.1",
+            "id": resolved_id,
+            "path": rel_path,
+            "max_bytes": max_bytes,
+            "truncated": false,
+            "review": review
+        })
+    );
+    Ok(())
+}
+
+fn handle_reviews_validate(id: &str, _json_output: bool) -> Result<(), String> {
+    let (resolved_id, rel_path, path) = resolve_review_id(id)?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read review artifact '{rel_path}': {e}"))?;
+    let (valid, errors) = match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(value) => {
+            let errors = validate_review_contract(&value, &resolved_id);
+            (errors.is_empty(), errors)
+        }
+        Err(e) => (false, vec![format!("review JSON is malformed: {e}")]),
+    };
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "reviews validate",
             "schema_version": "0.1",
             "id": resolved_id,
             "path": rel_path,

@@ -180,6 +180,30 @@ These roles are static contracts only. `ctxt` does not execute subagents, start 
 
 External tools may use subagents as deterministic review or planning helpers when the phase permits it, but `ctxt` itself only exposes the allowed role contracts. Every role is `contract-only`, may emit findings, risks, and recommendations, and may not edit files or run commands.
 
+## Phase 5b Behavior
+
+Phase 5b adds a deterministic review artifact contract.
+
+Review artifacts live under:
+
+```text
+reviews/<id>.review.json
+```
+
+Safe review commands:
+
+```powershell
+ctxt --json reviews list
+ctxt --json reviews inspect latest --max-bytes 12000
+ctxt --json reviews inspect --id latest --max-bytes 12000
+ctxt --json reviews validate latest
+ctxt --json reviews validate --id latest
+```
+
+Review artifacts are local JSON evidence contracts only. They can record reviewer findings, risks, recommendations, validation references, and safety flags, but they are not workspace truth and must be treated as untrusted evidence until validated.
+
+Phase 5b does not generate review artifacts, apply review recommendations, execute subagents, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, use network, call providers, create hooks, create plugins, or start background tasks.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.
