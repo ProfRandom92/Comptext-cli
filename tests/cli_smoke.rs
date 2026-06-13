@@ -1187,6 +1187,9 @@ fn capabilities_json_reports_phase_four_b_introspection() {
     assert!(phases.iter().any(|phase| {
         phase["phase"] == "5d" && phase["name"] == "deterministic startup readiness contract"
     }));
+    assert!(phases.iter().any(|phase| {
+        phase["phase"] == "5e" && phase["name"] == "deterministic review workflow contract"
+    }));
     assert_eq!(value["features"]["real_external_execution"], false);
     assert_eq!(value["features"]["network_gate"], false);
     assert_eq!(value["features"]["apply_gate"], false);
@@ -1220,6 +1223,9 @@ fn capabilities_json_reports_proposal_capabilities() {
     assert_eq!(features["startup_readiness_execution"], false);
     assert_eq!(features["ready_for_review_workflow"], true);
     assert_eq!(features["ready_for_external_execution"], false);
+    assert_eq!(features["review_workflow_contract"], true);
+    assert_eq!(features["review_workflow_execution"], false);
+    assert_eq!(features["review_workflow_apply"], false);
     assert_eq!(features["review_generation"], false);
     assert_eq!(features["review_apply"], false);
     assert_eq!(features["proposal_apply"], false);
@@ -1234,6 +1240,7 @@ fn capabilities_json_reports_proposal_capabilities() {
         "reviews validate",
         "startup flow",
         "startup readiness",
+        "review workflow",
     ] {
         let command = commands
             .iter()
@@ -1261,6 +1268,135 @@ fn capabilities_json_reports_proposal_capabilities() {
 }
 
 #[test]
+fn review_workflow_json_reports_static_contract() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "review", "workflow"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("review workflow JSON should parse");
+    let steps = value["workflow_steps"]
+        .as_array()
+        .expect("workflow_steps should be an array");
+    let expected_steps = [
+        ("startup-readiness", "ctxt --json startup readiness"),
+        ("startup-flow", "ctxt --json startup flow"),
+        ("inspect-schema", "ctxt --json schema"),
+        ("inspect-capabilities", "ctxt --json capabilities"),
+        ("inspect-subagent-roles", "ctxt --json subagents list"),
+        ("list-proposals", "ctxt --json proposals list"),
+        (
+            "validate-target-proposal",
+            "ctxt --json proposals validate latest",
+        ),
+        ("list-reviews", "ctxt --json reviews list"),
+        (
+            "validate-target-review",
+            "ctxt --json reviews validate latest",
+        ),
+        ("run-local-validation", "ctxt --json validate --run"),
+        ("summarize-findings-for-user", "user-facing summary only"),
+    ];
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "review workflow");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["execution_supported"], false);
+    assert_eq!(value["workflow_kind"], "deterministic-review");
+    assert_eq!(steps.len(), expected_steps.len());
+
+    for (index, (expected_id, expected_command)) in expected_steps.iter().enumerate() {
+        let step = &steps[index];
+        assert_eq!(step["order"].as_u64().unwrap(), (index + 1) as u64);
+        assert_eq!(step["id"], *expected_id);
+        assert_eq!(step["command"], *expected_command);
+        assert!(step["purpose"].as_str().unwrap().len() > 0);
+        assert_eq!(step["required"], true);
+        assert_eq!(step["executes"], false);
+        assert_eq!(step["applies_changes"], false);
+    }
+
+    for contract in [
+        "startup_readiness",
+        "startup_flow",
+        "subagent_roles",
+        "proposal_artifacts",
+        "review_artifacts",
+        "validation_runner",
+        "schema",
+        "capabilities",
+        "self_report",
+    ] {
+        assert_eq!(
+            value["required_contracts"][contract], true,
+            "required contract {contract}"
+        );
+    }
+
+    for role in [
+        "schema-reviewer",
+        "capabilities-reviewer",
+        "proposal-reviewer",
+        "test-reviewer",
+        "docs-reviewer",
+        "safety-reviewer",
+    ] {
+        assert!(value["required_roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate == role));
+    }
+
+    for action in [
+        "network",
+        "providers",
+        "external_agent_invocation",
+        "proposal_apply",
+        "review_apply",
+        "git_write",
+        "mcp_server",
+        "hooks",
+        "plugins",
+    ] {
+        assert!(value["forbidden_actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate == action));
+    }
+
+    for flag in [
+        "workflow_executed",
+        "network_used",
+        "external_agents_invoked",
+        "subagents_executed",
+        "apply_performed",
+        "git_write_performed",
+        "artifacts_read",
+        "artifacts_written",
+    ] {
+        assert_eq!(value["safety"][flag], false, "safety flag {flag}");
+    }
+}
+
+#[test]
+fn review_workflow_unknown_commands_fail_with_json_errors() {
+    let _guard = test_lock();
+    let cases = [
+        vec!["--json", "review"],
+        vec!["--json", "review", "run"],
+        vec!["--json", "review", "execute"],
+        vec!["--json", "review", "workflow", "extra"],
+        vec!["--json", "review", "unknown"],
+    ];
+
+    for args in cases {
+        let value = run_fail(&args);
+        assert_eq!(value["ok"], false);
+        assert!(value["error"]["message"].is_string());
+    }
+}
+
+#[test]
 fn startup_readiness_json_reports_static_readiness() {
     let _guard = test_lock();
     let stdout = run(&["--json", "startup", "readiness"]);
@@ -1281,6 +1417,7 @@ fn startup_readiness_json_reports_static_readiness() {
         "proposals",
         "reviews",
         "startup_flow",
+        "review_workflow",
         "validation_runner",
     ] {
         assert_eq!(value["contracts"][field], true, "contract {field}");
@@ -1312,6 +1449,7 @@ fn startup_readiness_json_reports_static_readiness() {
         "ctxt --json subagents list",
         "ctxt --json proposals list",
         "ctxt --json reviews list",
+        "ctxt --json review workflow",
         "ctxt --json validate --run",
     ];
     let recommended_next = value["recommended_next_commands"]
@@ -1347,6 +1485,7 @@ fn startup_flow_json_reports_static_sequence() {
         "ctxt --json subagents list",
         "ctxt --json proposals list",
         "ctxt --json reviews list",
+        "ctxt --json review workflow",
         "ctxt --json validate --run",
     ];
 
@@ -1417,6 +1556,7 @@ fn schema_json_reports_stable_contracts() {
         "subagents list",
         "startup flow",
         "startup readiness",
+        "review workflow",
         "reviews list",
         "reviews inspect",
         "reviews validate",
@@ -1562,6 +1702,72 @@ fn schema_json_reports_startup_readiness_contract_details() {
         "plugins",
     ] {
         assert!(contract["disabled_gate_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+}
+
+#[test]
+fn schema_json_reports_review_workflow_contract_details() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+    let contract = contracts
+        .iter()
+        .find(|contract| contract["command"] == "review workflow")
+        .expect("review workflow contract should exist");
+
+    assert_eq!(contract["status"], "stable");
+    for note in [
+        "read-only",
+        "static contract",
+        "does not execute workflow",
+        "review workflow contract only",
+        "no external agents",
+        "no network",
+        "no apply",
+        "no artifact reads",
+    ] {
+        assert!(contract["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == note));
+    }
+    for field in [
+        "ok",
+        "command",
+        "schema_version",
+        "execution_supported",
+        "workflow_kind",
+        "required_contracts",
+        "workflow_steps",
+        "required_roles",
+        "evidence_inputs",
+        "forbidden_actions",
+        "safety",
+    ] {
+        assert!(contract["required_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+    for field in [
+        "order",
+        "id",
+        "command",
+        "purpose",
+        "required",
+        "executes",
+        "applies_changes",
+    ] {
+        assert!(contract["workflow_step_fields"]
             .as_array()
             .unwrap()
             .iter()
@@ -1816,6 +2022,9 @@ fn self_report_json_reports_runtime_baseline() {
     );
     assert_eq!(value["agent_policy"]["ready_for_review_workflow"], true);
     assert_eq!(value["agent_policy"]["ready_for_external_execution"], false);
+    assert_eq!(value["agent_policy"]["review_workflow_execution"], false);
+    assert_eq!(value["agent_policy"]["review_workflow_contract_only"], true);
+    assert_eq!(value["agent_policy"]["review_workflow_apply"], false);
     assert_eq!(value["agent_policy"]["network_default"], "deny");
     assert_eq!(value["agent_policy"]["apply_automatic"], false);
     assert!(value["safe_entrypoints"]
@@ -1828,6 +2037,11 @@ fn self_report_json_reports_runtime_baseline() {
         .unwrap()
         .iter()
         .any(|entry| entry == "ctxt --json startup readiness"));
+    assert!(value["safe_entrypoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "ctxt --json review workflow"));
     assert!(value["safe_entrypoints"]
         .as_array()
         .unwrap()

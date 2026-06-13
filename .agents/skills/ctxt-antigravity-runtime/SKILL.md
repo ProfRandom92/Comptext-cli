@@ -31,6 +31,7 @@ Use these commands first to inspect the shared contract and runtime surface:
 cargo run --bin ctxt -- --json self report
 cargo run --bin ctxt -- --json startup readiness
 cargo run --bin ctxt -- --json startup flow
+cargo run --bin ctxt -- --json review workflow
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json capabilities
 cargo run --bin ctxt -- --json subagents list
@@ -104,6 +105,14 @@ Agents remain responsible for executing allowed commands one by one only when th
 Agents should call `ctxt --json startup readiness` before starting review workflow work.
 
 Readiness is a contract-only report. It does not run commands automatically. `ready_for_review_workflow: true` does not imply external execution is allowed. `ready_for_external_execution: false` remains the hard boundary.
+
+Use official docs only for architecture and best-practice claims.
+
+# Review Workflow Contract
+
+Agents should call `ctxt --json review workflow` to discover the deterministic review workflow.
+
+Review workflow is a contract-only checklist. It does not run commands automatically, read artifacts automatically, apply proposals or reviews, or imply external execution is allowed.
 
 Use official docs only for architecture and best-practice claims.
 

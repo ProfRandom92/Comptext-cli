@@ -234,6 +234,16 @@ The readiness report is not an execution gate. It does not execute commands, inv
 
 External tools may use `ctxt --json startup readiness` to decide whether the deterministic review workflow is available. `ready_for_review_workflow: true` does not imply external execution is allowed; `ready_for_external_execution: false` remains the hard boundary.
 
+## Phase 5e Behavior
+
+Phase 5e adds a deterministic review workflow contract.
+
+`ctxt --json review workflow` returns a static checklist that connects startup readiness, startup flow, subagent role contracts, proposal artifacts, review artifacts, and `ctxt --json validate --run`.
+
+The review workflow contract does not execute commands, read artifacts, apply proposals, apply review recommendations, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, use network, execute subagents, or perform git writes.
+
+External tools may use `ctxt --json review workflow` as a deterministic checklist for review work. The singular `review workflow` namespace is static workflow introspection; the plural `reviews` namespace remains the local review artifact interface.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

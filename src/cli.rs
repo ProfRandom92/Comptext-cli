@@ -122,6 +122,7 @@ enum Command {
     ProposalsValidate {
         id: String,
     },
+    ReviewWorkflow,
     ReviewsList,
     ReviewsInspect {
         id: String,
@@ -463,6 +464,13 @@ where
                 }
             }
         }
+        Ok(Command::ReviewWorkflow) => match handle_review_workflow(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
         Ok(Command::ReviewsList) => match handle_reviews_list(json_output) {
             Ok(_) => 0,
             Err(e) => {
@@ -1010,6 +1018,29 @@ fn parse_reviews_command(argv: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_review_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err("missing subcommand for 'review'. Usage: ctxt review workflow".to_string());
+    }
+
+    match argv[1].as_str() {
+        "workflow" => {
+            if argv.len() > 2 {
+                return Err(format!(
+                    "unexpected argument '{}' for 'review workflow'",
+                    argv[2]
+                ));
+            }
+            Ok(Command::ReviewWorkflow)
+        }
+        "run" | "execute" => Err(format!(
+            "unsupported subcommand '{}' for 'review': review workflow execution is not supported",
+            argv[1]
+        )),
+        other => Err(format!("unsupported subcommand '{}' for 'review'", other)),
+    }
+}
+
 fn parse_self_command(argv: &[String]) -> Result<Command, String> {
     if argv.len() < 2 {
         return Err("missing subcommand for 'self'. Usage: ctxt self report".to_string());
@@ -1103,6 +1134,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     }
     if first == "reviews" {
         return parse_reviews_command(argv);
+    }
+    if first == "review" {
+        return parse_review_command(argv);
     }
     if first == "self" {
         return parse_self_command(argv);
@@ -2993,6 +3027,13 @@ fn handle_startup_flow(_json_output: bool) -> Result<(), String> {
                 },
                 {
                     "order": 8,
+                    "command": "ctxt --json review workflow",
+                    "purpose": "read deterministic review workflow checklist without executing it",
+                    "required": true,
+                    "executes": false
+                },
+                {
+                    "order": 9,
                     "command": "ctxt --json validate --run",
                     "purpose": "run local validation only when the phase permits validation execution",
                     "required": true,
@@ -3029,6 +3070,7 @@ fn handle_startup_readiness(_json_output: bool) -> Result<(), String> {
                 "proposals": true,
                 "reviews": true,
                 "startup_flow": true,
+                "review_workflow": true,
                 "validation_runner": true
             },
             "disabled_gates": {
@@ -3051,6 +3093,7 @@ fn handle_startup_readiness(_json_output: bool) -> Result<(), String> {
                 "ctxt --json subagents list",
                 "ctxt --json proposals list",
                 "ctxt --json reviews list",
+                "ctxt --json review workflow",
                 "ctxt --json validate --run"
             ],
             "safety": {
@@ -3060,6 +3103,173 @@ fn handle_startup_readiness(_json_output: bool) -> Result<(), String> {
                 "subagents_executed": false,
                 "apply_performed": false,
                 "git_write_performed": false
+            }
+        })
+    );
+    Ok(())
+}
+
+fn handle_review_workflow(_json_output: bool) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "review workflow",
+            "schema_version": "0.1",
+            "execution_supported": false,
+            "workflow_kind": "deterministic-review",
+            "required_contracts": {
+                "startup_readiness": true,
+                "startup_flow": true,
+                "subagent_roles": true,
+                "proposal_artifacts": true,
+                "review_artifacts": true,
+                "validation_runner": true,
+                "schema": true,
+                "capabilities": true,
+                "self_report": true
+            },
+            "workflow_steps": [
+                {
+                    "order": 1,
+                    "id": "startup-readiness",
+                    "command": "ctxt --json startup readiness",
+                    "purpose": "confirm deterministic review workflow readiness",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 2,
+                    "id": "startup-flow",
+                    "command": "ctxt --json startup flow",
+                    "purpose": "read the safe startup checklist",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 3,
+                    "id": "inspect-schema",
+                    "command": "ctxt --json schema",
+                    "purpose": "inspect stable JSON contracts",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 4,
+                    "id": "inspect-capabilities",
+                    "command": "ctxt --json capabilities",
+                    "purpose": "inspect available features and disabled gates",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 5,
+                    "id": "inspect-subagent-roles",
+                    "command": "ctxt --json subagents list",
+                    "purpose": "inspect deterministic reviewer role contracts",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 6,
+                    "id": "list-proposals",
+                    "command": "ctxt --json proposals list",
+                    "purpose": "list local proposal artifact references",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 7,
+                    "id": "validate-target-proposal",
+                    "command": "ctxt --json proposals validate latest",
+                    "purpose": "validate the selected proposal artifact contract when permitted",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 8,
+                    "id": "list-reviews",
+                    "command": "ctxt --json reviews list",
+                    "purpose": "list local review artifact references",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 9,
+                    "id": "validate-target-review",
+                    "command": "ctxt --json reviews validate latest",
+                    "purpose": "validate the selected review artifact contract when permitted",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 10,
+                    "id": "run-local-validation",
+                    "command": "ctxt --json validate --run",
+                    "purpose": "run local validation only when the active phase permits it",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                },
+                {
+                    "order": 11,
+                    "id": "summarize-findings-for-user",
+                    "command": "user-facing summary only",
+                    "purpose": "summarize findings, risks, and validation evidence for the user",
+                    "required": true,
+                    "executes": false,
+                    "applies_changes": false
+                }
+            ],
+            "required_roles": [
+                "schema-reviewer",
+                "capabilities-reviewer",
+                "proposal-reviewer",
+                "test-reviewer",
+                "docs-reviewer",
+                "safety-reviewer"
+            ],
+            "evidence_inputs": [
+                "proposal artifacts",
+                "review artifacts",
+                "validation output",
+                "schema output",
+                "capabilities output",
+                "self report output"
+            ],
+            "forbidden_actions": [
+                "network",
+                "providers",
+                "external_agent_invocation",
+                "codex_cli_invocation",
+                "antigravity_cli_invocation",
+                "subagent_runtime_execution",
+                "proposal_apply",
+                "review_apply",
+                "git_write",
+                "mcp_server",
+                "hooks",
+                "plugins",
+                "arbitrary_shell_execution"
+            ],
+            "safety": {
+                "workflow_executed": false,
+                "network_used": false,
+                "external_agents_invoked": false,
+                "subagents_executed": false,
+                "apply_performed": false,
+                "git_write_performed": false,
+                "artifacts_read": false,
+                "artifacts_written": false
             }
         })
     );
@@ -3088,7 +3298,8 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 {"phase": "5a", "name": "deterministic subagent role contract", "status": "stable"},
                 {"phase": "5b", "name": "deterministic review artifact contract", "status": "stable"},
                 {"phase": "5c", "name": "deterministic startup review flow contract", "status": "stable"},
-                {"phase": "5d", "name": "deterministic startup readiness contract", "status": "stable"}
+                {"phase": "5d", "name": "deterministic startup readiness contract", "status": "stable"},
+                {"phase": "5e", "name": "deterministic review workflow contract", "status": "stable"}
             ],
             "safety": {
                 "network_default": "deny",
@@ -3119,6 +3330,9 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 "startup_readiness_execution": false,
                 "ready_for_review_workflow": true,
                 "ready_for_external_execution": false,
+                "review_workflow_contract": true,
+                "review_workflow_execution": false,
+                "review_workflow_apply": false,
                 "review_generation": false,
                 "review_apply": false,
                 "proposal_apply": false,
@@ -3226,6 +3440,15 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 },
                 {
                     "name": "startup readiness",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
+                {
+                    "name": "review workflow",
                     "json": true,
                     "side_effects": false,
                     "read_only": true,
@@ -3627,6 +3850,42 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                     ]
                 },
                 {
+                    "command": "review workflow",
+                    "status": "stable",
+                    "notes": [
+                        "read-only",
+                        "static contract",
+                        "does not execute workflow",
+                        "review workflow contract only",
+                        "no external agents",
+                        "no network",
+                        "no apply",
+                        "no artifact reads"
+                    ],
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "execution_supported",
+                        "workflow_kind",
+                        "required_contracts",
+                        "workflow_steps",
+                        "required_roles",
+                        "evidence_inputs",
+                        "forbidden_actions",
+                        "safety"
+                    ],
+                    "workflow_step_fields": [
+                        "order",
+                        "id",
+                        "command",
+                        "purpose",
+                        "required",
+                        "executes",
+                        "applies_changes"
+                    ]
+                },
+                {
                     "command": "agent discover",
                     "status": "stable",
                     "required_fields": [
@@ -3709,6 +3968,7 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "ctxt --json schema",
                 "ctxt --json startup readiness",
                 "ctxt --json startup flow",
+                "ctxt --json review workflow",
                 "ctxt --json capabilities",
                 "ctxt --json subagents list",
                 "ctxt --json reviews list",
@@ -3735,6 +3995,9 @@ fn handle_self_report(_json_output: bool) -> Result<(), String> {
                 "startup_readiness_contract_only": true,
                 "ready_for_review_workflow": true,
                 "ready_for_external_execution": false,
+                "review_workflow_execution": false,
+                "review_workflow_contract_only": true,
+                "review_workflow_apply": false,
                 "network_default": "deny",
                 "apply_automatic": false
             },

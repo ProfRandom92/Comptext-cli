@@ -66,6 +66,7 @@ Use these commands for safe, JSON-oriented runtime inspection:
 cargo run --bin ctxt -- --json self report
 cargo run --bin ctxt -- --json startup readiness
 cargo run --bin ctxt -- --json startup flow
+cargo run --bin ctxt -- --json review workflow
 cargo run --bin ctxt -- --json agent list
 cargo run --bin ctxt -- --json agent discover
 cargo run --bin ctxt -- --json agent discover --kind codex
@@ -182,6 +183,14 @@ Phase 5d adds a deterministic startup readiness contract through `ctxt --json st
 Agents should call `ctxt --json startup readiness` before starting review workflow work. Readiness is a contract-only report. It does not run commands automatically.
 
 `ready_for_review_workflow: true` does not imply external execution is allowed. `ready_for_external_execution: false` remains the hard boundary. Use official docs only for architecture and best-practice claims.
+
+# Phase 5e Note
+
+Phase 5e adds a deterministic review workflow contract through `ctxt --json review workflow`.
+
+Agents should call `ctxt --json review workflow` to discover the deterministic review workflow. Review workflow is a contract-only checklist. It does not run commands automatically, read artifacts automatically, apply proposals or reviews, or imply external execution is allowed.
+
+Use official docs only for architecture and best-practice claims.
 
 # Cross-Agent Compatibility
 
