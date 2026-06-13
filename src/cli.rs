@@ -103,6 +103,12 @@ enum Command {
     Validate {
         run: bool,
     },
+    Capabilities,
+    RunsList,
+    RunsRead {
+        id: String,
+        max_bytes: usize,
+    },
     AgentList,
     AgentDiscover {
         kind: Option<String>,
@@ -353,6 +359,29 @@ where
                 1
             }
         },
+        Ok(Command::Capabilities) => match handle_capabilities(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::RunsList) => match handle_runs_list(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::RunsRead { id, max_bytes }) => {
+            match handle_runs_read(&id, max_bytes, json_output) {
+                Ok(_) => 0,
+                Err(e) => {
+                    emit_error(json_output, &e);
+                    1
+                }
+            }
+        }
         Ok(Command::AgentList) => match handle_agent_list(json_output) {
             Ok(_) => 0,
             Err(e) => {
@@ -576,6 +605,72 @@ fn parse_agent_command(argv: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_runs_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err("missing subcommand for 'runs'. Usage: ctxt runs list | read".to_string());
+    }
+
+    match argv[1].as_str() {
+        "list" => {
+            if argv.len() > 2 {
+                return Err(format!("unexpected argument '{}' for 'runs list'", argv[2]));
+            }
+            Ok(Command::RunsList)
+        }
+        "read" => {
+            let mut id = None;
+            let mut max_bytes = 12000usize;
+            let mut saw_max_bytes = false;
+            let mut i = 2;
+
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--id" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing id after --id".to_string());
+                        }
+                        if id.is_some() {
+                            return Err("duplicate --id for 'runs read'".to_string());
+                        }
+                        id = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--max-bytes" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing byte count after --max-bytes".to_string());
+                        }
+                        if saw_max_bytes {
+                            return Err("duplicate --max-bytes for 'runs read'".to_string());
+                        }
+                        max_bytes = argv[i + 1]
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --max-bytes value '{}'", argv[i + 1]))?;
+                        if max_bytes == 0 {
+                            return Err("--max-bytes must be greater than zero".to_string());
+                        }
+                        saw_max_bytes = true;
+                        i += 2;
+                    }
+                    value if value.starts_with('-') => {
+                        return Err(format!("unexpected argument '{value}' for 'runs read'"));
+                    }
+                    value => {
+                        if id.is_some() {
+                            return Err(format!("unexpected argument '{value}' for 'runs read'"));
+                        }
+                        id = Some(value.to_string());
+                        i += 1;
+                    }
+                }
+            }
+
+            let id = id.ok_or_else(|| "missing run id for 'runs read'".to_string())?;
+            Ok(Command::RunsRead { id, max_bytes })
+        }
+        other => Err(format!("unsupported subcommand '{}' for 'runs'", other)),
+    }
+}
+
 fn parse(argv: &[String]) -> Result<Command, String> {
     if argv.is_empty() {
         return Ok(Command::Help);
@@ -584,6 +679,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     let first = &argv[0];
     if first == "agent" {
         return parse_agent_command(argv);
+    }
+    if first == "runs" {
+        return parse_runs_command(argv);
     }
 
     match first.as_str() {
@@ -604,6 +702,15 @@ fn parse(argv: &[String]) -> Result<Command, String> {
                 return Err(format!("unexpected argument '{}' for doctor", argv[1]));
             }
             Ok(Command::Doctor)
+        }
+        "capabilities" => {
+            if argv.len() > 1 {
+                return Err(format!(
+                    "unexpected argument '{}' for capabilities",
+                    argv[1]
+                ));
+            }
+            Ok(Command::Capabilities)
         }
         "init" => {
             let mut out_path = None;
@@ -2385,6 +2492,117 @@ fn handle_validate(run: bool, json_output: bool) -> Result<i32, String> {
         }
     }
     Ok(0)
+}
+
+fn handle_capabilities(_json_output: bool) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "capabilities",
+            "schema_version": "0.1",
+            "phases": [
+                {"phase": "1", "name": "local runtime", "status": "stable"},
+                {"phase": "2", "name": "execution-plan-only", "status": "stable"},
+                {"phase": "3", "name": "discovery-only", "status": "stable"},
+                {"phase": "4a", "name": "companion skill", "status": "stable"},
+                {"phase": "4b", "name": "agent-friendly CLI polish", "status": "in-progress"}
+            ],
+            "safety": {
+                "network_default": "deny",
+                "external_agents_invoked": false,
+                "apply_automatic": false,
+                "proposal_required": true
+            },
+            "features": {
+                "agent_list": true,
+                "agent_discovery": true,
+                "execution_plan_only": true,
+                "runs_list": true,
+                "runs_read": true,
+                "real_external_execution": false,
+                "network_gate": false,
+                "apply_gate": false
+            },
+            "commands": [
+                {"name": "validate", "json": true, "side_effects": false},
+                {"name": "agent list", "json": true, "side_effects": false},
+                {"name": "agent discover", "json": true, "side_effects": false},
+                {
+                    "name": "agent run --allow-external --proposal-only",
+                    "json": true,
+                    "side_effects": true,
+                    "writes_artifacts": true,
+                    "external_agent_invoked": false
+                },
+                {
+                    "name": "artifacts read",
+                    "json": true,
+                    "side_effects": false,
+                    "bounded_read": true
+                },
+                {"name": "runs list", "json": true, "side_effects": false},
+                {
+                    "name": "runs read",
+                    "json": true,
+                    "side_effects": false,
+                    "bounded_read": true
+                }
+            ]
+        })
+    );
+    Ok(())
+}
+
+fn run_artifact_path_for_id(id: &str) -> Option<&'static str> {
+    match id {
+        "latest" => Some(".comptext/runs/latest/run.json"),
+        _ => None,
+    }
+}
+
+fn handle_runs_list(_json_output: bool) -> Result<(), String> {
+    let latest_path = run_artifact_path_for_id("latest").expect("latest run path should exist");
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "runs list",
+            "schema_version": "0.1",
+            "runs": [
+                {
+                    "id": "latest",
+                    "path": latest_path,
+                    "exists": std::path::Path::new(latest_path).exists()
+                }
+            ]
+        })
+    );
+    Ok(())
+}
+
+fn handle_runs_read(id: &str, max_bytes: usize, _json_output: bool) -> Result<(), String> {
+    let path = run_artifact_path_for_id(id).ok_or_else(|| format!("unknown run id '{id}'"))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("failed to read run artifact '{path}': {e}"))?;
+    let text = String::from_utf8_lossy(&bytes);
+    let (content, truncated) = truncate_at_byte_limit(&text, max_bytes);
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "runs read",
+            "schema_version": "0.1",
+            "id": id,
+            "path": path,
+            "kind": "runtime",
+            "max_bytes": max_bytes,
+            "truncated": truncated,
+            "content": content
+        })
+    );
+    Ok(())
 }
 
 fn handle_agent_list(_json_output: bool) -> Result<(), String> {

@@ -58,6 +58,22 @@ Phase 3 adds discovery only.
 
 Version detection is deferred to a future gated capability because even a version check would invoke the external binary.
 
+## Phase 4b Behavior
+
+Phase 4b adds read-only, agent-friendly CLI introspection.
+
+`ctxt --json capabilities` reports the stable machine-readable runtime capability surface, including supported phases, safety defaults, feature flags, and safe command families.
+
+`ctxt --json runs list` lists first-class run references. Phase 4b exposes `latest` at:
+
+```text
+.comptext/runs/latest/run.json
+```
+
+`ctxt --json runs read latest --max-bytes 12000` and `ctxt --json runs read --id latest --max-bytes 12000` read that run artifact through a bounded interface. The default read limit is 12000 bytes.
+
+These commands are read-only. They do not use network, do not invoke external agents, do not execute version commands, do not apply proposals, and do not add real external execution.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

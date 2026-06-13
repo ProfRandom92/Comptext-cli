@@ -404,6 +404,27 @@ fn validate_run_executes_validation_commands() {
 }
 
 #[test]
+fn capabilities_json_reports_phase_four_b_introspection() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "capabilities"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("capabilities JSON should parse");
+    let phases = value["phases"]
+        .as_array()
+        .expect("phases should be an array");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "capabilities");
+    assert_eq!(value["schema_version"], "0.1");
+    assert!(phases
+        .iter()
+        .any(|phase| { phase["phase"] == "4b" && phase["name"] == "agent-friendly CLI polish" }));
+    assert_eq!(value["features"]["real_external_execution"], false);
+    assert_eq!(value["features"]["network_gate"], false);
+    assert_eq!(value["features"]["apply_gate"], false);
+}
+
+#[test]
 fn agent_list_json_reports_phase_one_agents() {
     let _guard = test_lock();
     let stdout = run(&["--json", "agent", "list"]);
@@ -497,6 +518,116 @@ fn agent_discover_unknown_kind_fails_with_json_error() {
         .as_str()
         .unwrap()
         .contains("unsupported agent discovery kind"));
+}
+
+#[test]
+fn runs_list_json_reports_latest_reference() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "runs", "list"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("runs list JSON should parse");
+    let runs = value["runs"].as_array().expect("runs should be an array");
+    let latest = runs.first().expect("latest run reference should exist");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "runs list");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(latest["id"], "latest");
+    assert_eq!(latest["path"], ".comptext/runs/latest/run.json");
+    assert!(latest["exists"].is_boolean());
+}
+
+#[test]
+fn runs_read_latest_positional_reads_bounded_runtime_artifact() {
+    let _guard = test_lock();
+    let run_path = std::path::Path::new(".comptext/runs/latest/run.json");
+    let _run_guard = FileGuard::new(run_path);
+    run(&[
+        "--json",
+        "agent",
+        "run",
+        "--kind",
+        "codex",
+        "--task",
+        "Prepare Codex execution plan",
+        "--allow-external",
+        "--proposal-only",
+    ]);
+
+    let stdout = run(&["--json", "runs", "read", "latest", "--max-bytes", "12000"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("runs read JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "runs read");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["id"], "latest");
+    assert_eq!(value["path"], ".comptext/runs/latest/run.json");
+    assert_eq!(value["max_bytes"], 12000);
+    assert!(value["content"]
+        .as_str()
+        .unwrap()
+        .contains("execution-plan-only"));
+}
+
+#[test]
+fn runs_read_latest_flag_id_reads_bounded_runtime_artifact() {
+    let _guard = test_lock();
+    let run_path = std::path::Path::new(".comptext/runs/latest/run.json");
+    let _run_guard = FileGuard::new(run_path);
+    run(&[
+        "--json",
+        "agent",
+        "run",
+        "--kind",
+        "codex",
+        "--task",
+        "Prepare Codex execution plan",
+        "--allow-external",
+        "--proposal-only",
+    ]);
+
+    let stdout = run(&[
+        "--json",
+        "runs",
+        "read",
+        "--id",
+        "latest",
+        "--max-bytes",
+        "12000",
+    ]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("runs read JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "runs read");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["id"], "latest");
+    assert_eq!(value["path"], ".comptext/runs/latest/run.json");
+}
+
+#[test]
+fn runs_read_errors_are_machine_readable() {
+    let _guard = test_lock();
+    let cases = vec![
+        vec!["--json", "runs", "read", "unknown"],
+        vec!["--json", "runs", "read", "latest", "--max-bytes", "nope"],
+        vec!["--json", "runs", "read", "--id", "latest", "--id", "latest"],
+        vec!["--json", "runs", "read", "latest", "extra"],
+    ];
+    for args in cases {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+            .args(&args)
+            .output()
+            .expect("ctxt binary should run");
+
+        assert!(!output.status.success(), "command should fail: {args:?}");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+        let value: serde_json::Value =
+            serde_json::from_str(&stderr).expect("error JSON should parse");
+        assert_eq!(value["ok"], false);
+        assert!(value["error"]["message"].is_string());
+    }
 }
 
 #[test]
