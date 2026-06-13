@@ -1184,6 +1184,9 @@ fn capabilities_json_reports_phase_four_b_introspection() {
     assert!(phases.iter().any(|phase| {
         phase["phase"] == "5c" && phase["name"] == "deterministic startup review flow contract"
     }));
+    assert!(phases.iter().any(|phase| {
+        phase["phase"] == "5d" && phase["name"] == "deterministic startup readiness contract"
+    }));
     assert_eq!(value["features"]["real_external_execution"], false);
     assert_eq!(value["features"]["network_gate"], false);
     assert_eq!(value["features"]["apply_gate"], false);
@@ -1213,6 +1216,10 @@ fn capabilities_json_reports_proposal_capabilities() {
     assert_eq!(features["review_artifact_contract"], true);
     assert_eq!(features["startup_flow_contract"], true);
     assert_eq!(features["startup_flow_execution"], false);
+    assert_eq!(features["startup_readiness_contract"], true);
+    assert_eq!(features["startup_readiness_execution"], false);
+    assert_eq!(features["ready_for_review_workflow"], true);
+    assert_eq!(features["ready_for_external_execution"], false);
     assert_eq!(features["review_generation"], false);
     assert_eq!(features["review_apply"], false);
     assert_eq!(features["proposal_apply"], false);
@@ -1226,6 +1233,7 @@ fn capabilities_json_reports_proposal_capabilities() {
         "reviews inspect",
         "reviews validate",
         "startup flow",
+        "startup readiness",
     ] {
         let command = commands
             .iter()
@@ -1253,6 +1261,76 @@ fn capabilities_json_reports_proposal_capabilities() {
 }
 
 #[test]
+fn startup_readiness_json_reports_static_readiness() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "startup", "readiness"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("startup readiness JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "startup readiness");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["ready_for_review_workflow"], true);
+    assert_eq!(value["ready_for_external_execution"], false);
+
+    for field in [
+        "self_report",
+        "schema",
+        "capabilities",
+        "subagents",
+        "proposals",
+        "reviews",
+        "startup_flow",
+        "validation_runner",
+    ] {
+        assert_eq!(value["contracts"][field], true, "contract {field}");
+    }
+
+    for field in [
+        "network",
+        "external_agents",
+        "provider_calls",
+        "proposal_apply",
+        "review_apply",
+        "subagent_execution",
+        "git_write",
+        "mcp_server",
+        "hooks",
+        "plugins",
+    ] {
+        assert_eq!(
+            value["disabled_gates"][field], true,
+            "disabled gate {field}"
+        );
+    }
+
+    let expected_next = [
+        "ctxt --json startup flow",
+        "ctxt --json self report",
+        "ctxt --json schema",
+        "ctxt --json capabilities",
+        "ctxt --json subagents list",
+        "ctxt --json proposals list",
+        "ctxt --json reviews list",
+        "ctxt --json validate --run",
+    ];
+    let recommended_next = value["recommended_next_commands"]
+        .as_array()
+        .expect("recommended_next_commands should be an array");
+    assert_eq!(recommended_next.len(), expected_next.len());
+    for (index, expected) in expected_next.iter().enumerate() {
+        assert_eq!(recommended_next[index], *expected);
+    }
+
+    assert_eq!(value["safety"]["readiness_executed_commands"], false);
+    assert_eq!(value["safety"]["network_used"], false);
+    assert_eq!(value["safety"]["external_agents_invoked"], false);
+    assert_eq!(value["safety"]["subagents_executed"], false);
+    assert_eq!(value["safety"]["apply_performed"], false);
+    assert_eq!(value["safety"]["git_write_performed"], false);
+}
+
+#[test]
 fn startup_flow_json_reports_static_sequence() {
     let _guard = test_lock();
     let stdout = run(&["--json", "startup", "flow"]);
@@ -1262,6 +1340,7 @@ fn startup_flow_json_reports_static_sequence() {
         .as_array()
         .expect("recommended_sequence should be an array");
     let expected_commands = [
+        "ctxt --json startup readiness",
         "ctxt --json self report",
         "ctxt --json schema",
         "ctxt --json capabilities",
@@ -1302,6 +1381,9 @@ fn startup_unknown_commands_fail_with_json_errors() {
         vec!["--json", "startup", "run"],
         vec!["--json", "startup", "execute"],
         vec!["--json", "startup", "flow", "extra"],
+        vec!["--json", "startup", "readiness", "extra"],
+        vec!["--json", "startup", "ready"],
+        vec!["--json", "startup", "status"],
         vec!["--json", "startup", "unknown"],
     ];
 
@@ -1334,6 +1416,7 @@ fn schema_json_reports_stable_contracts() {
         "proposal.v1 artifact",
         "subagents list",
         "startup flow",
+        "startup readiness",
         "reviews list",
         "reviews inspect",
         "reviews validate",
@@ -1396,6 +1479,89 @@ fn schema_json_reports_startup_flow_contract_details() {
     }
     for field in ["order", "command", "purpose", "required", "executes"] {
         assert!(contract["sequence_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+}
+
+#[test]
+fn schema_json_reports_startup_readiness_contract_details() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+    let contract = contracts
+        .iter()
+        .find(|contract| contract["command"] == "startup readiness")
+        .expect("startup readiness contract should exist");
+
+    assert_eq!(contract["status"], "stable");
+    for note in [
+        "read-only",
+        "static contract",
+        "does not execute commands",
+        "review workflow readiness only",
+        "external execution disabled",
+        "no external agents",
+        "no network",
+        "no apply",
+    ] {
+        assert!(contract["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == note));
+    }
+    for field in [
+        "ok",
+        "command",
+        "schema_version",
+        "ready_for_review_workflow",
+        "ready_for_external_execution",
+        "contracts",
+        "disabled_gates",
+        "recommended_next_commands",
+        "safety",
+    ] {
+        assert!(contract["required_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+    for field in [
+        "self_report",
+        "schema",
+        "capabilities",
+        "subagents",
+        "proposals",
+        "reviews",
+        "startup_flow",
+        "validation_runner",
+    ] {
+        assert!(contract["contract_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == field));
+    }
+    for field in [
+        "network",
+        "external_agents",
+        "provider_calls",
+        "proposal_apply",
+        "review_apply",
+        "subagent_execution",
+        "git_write",
+        "mcp_server",
+        "hooks",
+        "plugins",
+    ] {
+        assert!(contract["disabled_gate_fields"]
             .as_array()
             .unwrap()
             .iter()
@@ -1643,6 +1809,13 @@ fn self_report_json_reports_runtime_baseline() {
     );
     assert_eq!(value["agent_policy"]["startup_flow_execution"], false);
     assert_eq!(value["agent_policy"]["startup_flow_contract_only"], true);
+    assert_eq!(value["agent_policy"]["startup_readiness_execution"], false);
+    assert_eq!(
+        value["agent_policy"]["startup_readiness_contract_only"],
+        true
+    );
+    assert_eq!(value["agent_policy"]["ready_for_review_workflow"], true);
+    assert_eq!(value["agent_policy"]["ready_for_external_execution"], false);
     assert_eq!(value["agent_policy"]["network_default"], "deny");
     assert_eq!(value["agent_policy"]["apply_automatic"], false);
     assert!(value["safe_entrypoints"]
@@ -1650,6 +1823,11 @@ fn self_report_json_reports_runtime_baseline() {
         .unwrap()
         .iter()
         .any(|entry| entry == "ctxt --json subagents list"));
+    assert!(value["safe_entrypoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "ctxt --json startup readiness"));
     assert!(value["safe_entrypoints"]
         .as_array()
         .unwrap()

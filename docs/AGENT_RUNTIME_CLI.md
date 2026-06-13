@@ -224,6 +224,16 @@ The startup flow is a contract-only checklist. It does not execute the flow, inv
 
 External tools may use `ctxt --json startup flow` as a deterministic startup checklist. They remain responsible for executing allowed commands one by one only when the active phase permits those commands.
 
+## Phase 5d Behavior
+
+Phase 5d adds a deterministic startup readiness contract.
+
+`ctxt --json startup readiness` returns a static readiness report for the deterministic review workflow. It reports that review workflow contracts are ready and that external execution remains disabled.
+
+The readiness report is not an execution gate. It does not execute commands, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, use network, execute subagents, apply proposals, apply review recommendations, or perform git writes.
+
+External tools may use `ctxt --json startup readiness` to decide whether the deterministic review workflow is available. `ready_for_review_workflow: true` does not imply external execution is allowed; `ready_for_external_execution: false` remains the hard boundary.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

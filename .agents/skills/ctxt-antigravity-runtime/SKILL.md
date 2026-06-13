@@ -29,6 +29,7 @@ Use these commands first to inspect the shared contract and runtime surface:
 
 ```powershell
 cargo run --bin ctxt -- --json self report
+cargo run --bin ctxt -- --json startup readiness
 cargo run --bin ctxt -- --json startup flow
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json capabilities
@@ -97,6 +98,14 @@ Agents should call `ctxt --json startup flow` to discover the safe session start
 The startup flow is a contract-only checklist. It does not run commands automatically, invoke Codex CLI, invoke Antigravity CLI, invoke external agents, execute subagents, use network, apply proposals or reviews, or perform git writes.
 
 Agents remain responsible for executing allowed commands one by one only when the active phase permits those commands. Use official docs only for architecture or best-practice claims.
+
+# Startup Readiness Contract
+
+Agents should call `ctxt --json startup readiness` before starting review workflow work.
+
+Readiness is a contract-only report. It does not run commands automatically. `ready_for_review_workflow: true` does not imply external execution is allowed. `ready_for_external_execution: false` remains the hard boundary.
+
+Use official docs only for architecture and best-practice claims.
 
 # Plan Artifacts Only
 
