@@ -62,6 +62,7 @@ cargo run --bin ctxt -- --json validate --run
 Use these commands for safe, JSON-oriented runtime inspection:
 
 ```powershell
+cargo run --bin ctxt -- --json self report
 cargo run --bin ctxt -- --json agent list
 cargo run --bin ctxt -- --json agent discover
 cargo run --bin ctxt -- --json agent discover --kind codex
@@ -113,6 +114,10 @@ Phase 4b adds read-only agent-friendly CLI introspection. Use `ctxt --json capab
 # Phase 4c Note
 
 Phase 4c adds read-only JSON contract introspection. Use `ctxt --json schema` when a future agent needs stable output shape summaries for supported JSON commands. The schema command is static and does not read files, write files, invoke external agents, use network, apply proposals, or add real external execution.
+
+# Phase 4e Note
+
+Phase 4e adds a read-only runtime startup report. Use `ctxt --json self report` as the first command when a future Codex or Antigravity session needs the local runtime baseline, safe entrypoints, validation source of truth, and cross-agent policy. The command is static and does not read files, write files, invoke external agents, use network, apply proposals, or add real external execution.
 
 # Cross-Agent Compatibility
 

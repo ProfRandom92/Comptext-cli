@@ -473,6 +473,61 @@ fn schema_unexpected_arg_fails_with_json_error() {
 }
 
 #[test]
+fn self_report_json_reports_runtime_baseline() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "self", "report"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("self report JSON should parse");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "self report");
+    assert_eq!(value["schema_version"], "0.1");
+    assert_eq!(value["runtime"]["name"], "ctxt");
+    assert_eq!(value["runtime"]["phase"], "4e");
+    assert_eq!(value["validation"]["last_known_unit_tests"], 37);
+    assert_eq!(value["validation"]["last_known_smoke_tests"], 39);
+    assert_eq!(value["agent_policy"]["external_execution"], false);
+    assert_eq!(value["agent_policy"]["network_default"], "deny");
+    assert_eq!(value["agent_policy"]["apply_automatic"], false);
+}
+
+#[test]
+fn self_without_report_fails_with_json_error() {
+    let _guard = test_lock();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(["--json", "self"])
+        .output()
+        .expect("ctxt binary should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    let value: serde_json::Value = serde_json::from_str(&stderr).expect("error JSON should parse");
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("missing subcommand"));
+}
+
+#[test]
+fn self_report_extra_arg_fails_with_json_error() {
+    let _guard = test_lock();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(["--json", "self", "report", "extra"])
+        .output()
+        .expect("ctxt binary should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    let value: serde_json::Value = serde_json::from_str(&stderr).expect("error JSON should parse");
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unexpected argument"));
+}
+
+#[test]
 fn agent_list_json_reports_phase_one_agents() {
     let _guard = test_lock();
     let stdout = run(&["--json", "agent", "list"]);

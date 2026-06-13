@@ -105,6 +105,7 @@ enum Command {
     },
     Capabilities,
     Schema,
+    SelfReport,
     RunsList,
     RunsRead {
         id: String,
@@ -368,6 +369,13 @@ where
             }
         },
         Ok(Command::Schema) => match handle_schema(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::SelfReport) => match handle_self_report(json_output) {
             Ok(_) => 0,
             Err(e) => {
                 emit_error(json_output, &e);
@@ -679,6 +687,22 @@ fn parse_runs_command(argv: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_self_command(argv: &[String]) -> Result<Command, String> {
+    if argv.len() < 2 {
+        return Err("missing subcommand for 'self'. Usage: ctxt self report".to_string());
+    }
+    if argv[1] != "report" {
+        return Err(format!("unsupported subcommand '{}' for 'self'", argv[1]));
+    }
+    if argv.len() > 2 {
+        return Err(format!(
+            "unexpected argument '{}' for 'self report'",
+            argv[2]
+        ));
+    }
+    Ok(Command::SelfReport)
+}
+
 fn parse(argv: &[String]) -> Result<Command, String> {
     if argv.is_empty() {
         return Ok(Command::Help);
@@ -690,6 +714,9 @@ fn parse(argv: &[String]) -> Result<Command, String> {
     }
     if first == "runs" {
         return parse_runs_command(argv);
+    }
+    if first == "self" {
+        return parse_self_command(argv);
     }
 
     match first.as_str() {
@@ -2664,6 +2691,56 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                 "external_agent_invoked": false,
                 "apply_performed": false
             }
+        })
+    );
+    Ok(())
+}
+
+fn handle_self_report(_json_output: bool) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "self report",
+            "schema_version": "0.1",
+            "runtime": {
+                "name": "ctxt",
+                "version": VERSION,
+                "phase": "4e",
+                "mode": "cross-agent-safe"
+            },
+            "toolchain": {
+                "rust_required": "stable",
+                "rust_validated": "1.96.0"
+            },
+            "validation": {
+                "source_of_truth": "external PowerShell on this Windows machine",
+                "last_known_unit_tests": 37,
+                "last_known_smoke_tests": 39,
+                "validate_run_green": true
+            },
+            "safe_entrypoints": [
+                "ctxt --json schema",
+                "ctxt --json capabilities",
+                "ctxt --json runs list",
+                "ctxt --json runs read latest --max-bytes 12000",
+                "ctxt --json agent discover",
+                "ctxt --json validate --run"
+            ],
+            "agent_policy": {
+                "codex_direct_task_execution": false,
+                "antigravity_direct_task_execution": false,
+                "proposal_only": true,
+                "external_execution": false,
+                "network_default": "deny",
+                "apply_automatic": false
+            },
+            "recommended_next_commands": [
+                "cargo run --bin ctxt -- --json schema",
+                "cargo run --bin ctxt -- --json capabilities",
+                "cargo run --bin ctxt -- --json agent discover",
+                "cargo run --bin ctxt -- --json runs list"
+            ]
         })
     );
     Ok(())

@@ -108,6 +108,14 @@ cargo run --bin ctxt -- --json validate --run
 
 Phase 4d does not add plugin packaging, MCP servers, hooks, network, apply, or real external execution. Antigravity guidance is an adapter to `ctxt`, not a separate runtime, policy, or execution system.
 
+## Phase 4e Behavior
+
+Phase 4e adds a read-only runtime startup report.
+
+`ctxt --json self report` returns stable JSON summarizing the local `ctxt` runtime baseline, safe entrypoints, validation baseline, and cross-agent policy. It is intended as a useful first command for Codex and Antigravity sessions.
+
+The self report command is static and read-only. It does not read files, write files, use network, invoke external agents, apply proposals, or add real external execution.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

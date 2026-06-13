@@ -27,6 +27,7 @@ It is an adapter to `ctxt`, not a separate runtime, policy, or execution system.
 Use these commands first to inspect the shared contract and runtime surface:
 
 ```powershell
+cargo run --bin ctxt -- --json self report
 cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json capabilities
 cargo run --bin ctxt -- --json runs list
