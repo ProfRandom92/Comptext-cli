@@ -2706,7 +2706,9 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 {"phase": "4c", "name": "JSON schema contract", "status": "stable"},
                 {"phase": "4d", "name": "cross-agent guidance", "status": "stable"},
                 {"phase": "4e", "name": "runtime self report", "status": "stable"},
-                {"phase": "4f", "name": "proposal artifact contract", "status": "in-progress"}
+                {"phase": "4f", "name": "proposal artifact contract", "status": "stable"},
+                {"phase": "4g", "name": "proposal schema contracts", "status": "stable"},
+                {"phase": "4h", "name": "proposal capabilities", "status": "stable"}
             ],
             "safety": {
                 "network_default": "deny",
@@ -2723,6 +2725,9 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                 "proposals_list": true,
                 "proposals_inspect": true,
                 "proposals_validate": true,
+                "proposal_artifact_contract": true,
+                "proposal_apply": false,
+                "proposal_generation": false,
                 "real_external_execution": false,
                 "network_gate": false,
                 "apply_gate": false
@@ -2751,18 +2756,33 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                     "side_effects": false,
                     "bounded_read": true
                 },
-                {"name": "proposals list", "json": true, "side_effects": false},
+                {
+                    "name": "proposals list",
+                    "json": true,
+                    "side_effects": false,
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
+                },
                 {
                     "name": "proposals inspect",
                     "json": true,
                     "side_effects": false,
-                    "bounded_read": true
+                    "read_only": true,
+                    "bounded_read": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
                 },
                 {
                     "name": "proposals validate",
                     "json": true,
                     "side_effects": false,
-                    "applies_changes": false
+                    "read_only": true,
+                    "network_used": false,
+                    "external_agent_invoked": false,
+                    "apply_performed": false
                 }
             ]
         })

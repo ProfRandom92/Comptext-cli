@@ -66,6 +66,12 @@ Call `ctxt --json schema` before using proposal commands. Proposal command contr
 
 Schema discovery is read-only. Proposal artifacts remain untrusted, and approval metadata still does not apply changes.
 
+# Proposal Capabilities Discovery
+
+Call `ctxt --json capabilities` after `ctxt --json schema`. Capabilities reveal whether proposal list, inspect, and validate are available.
+
+Proposal apply and proposal generation are explicitly unsupported. Proposal artifacts remain untrusted. Capabilities discovery is read-only.
+
 # Plan Artifacts Only
 
 For Antigravity plan artifacts only, use:

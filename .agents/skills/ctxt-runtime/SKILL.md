@@ -136,11 +136,17 @@ Phase 4g adds proposal command contracts to `ctxt --json schema`. Agents should 
 
 Schema discovery is read-only. Proposal artifacts remain untrusted. Approval metadata still does not apply changes.
 
+# Phase 4h Note
+
+Phase 4h adds proposal support metadata to `ctxt --json capabilities`. Agents should call `ctxt --json capabilities` after `ctxt --json schema` to confirm whether proposal list, inspect, and validate are available.
+
+Proposal apply and proposal generation are explicitly unsupported. Proposal artifacts remain untrusted. Capabilities discovery is read-only.
+
 # Cross-Agent Compatibility
 
 Codex and Antigravity should both route through `ctxt`.
 
-Use `ctxt --json schema` first to inspect contracts. Use `ctxt --json capabilities` to inspect supported features and disabled gates. Use `ctxt --json runs list` and bounded `ctxt --json runs read` for artifact-first state inspection.
+Use `ctxt --json schema` first to inspect contracts. Use `ctxt --json capabilities` after schema to inspect supported features and disabled gates. Use `ctxt --json runs list` and bounded `ctxt --json runs read` for artifact-first state inspection.
 
 Use proposal-only agent run commands only to create plan artifacts. Do not infer real execution if artifacts say `external_agent_invoked=false`. Do not bypass `ctxt` by invoking Codex CLI or Antigravity CLI directly for tasks.
 

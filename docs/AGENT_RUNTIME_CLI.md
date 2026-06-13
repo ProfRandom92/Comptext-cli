@@ -155,6 +155,14 @@ Phase 4g adds proposal contracts to schema introspection.
 
 Codex and Antigravity should inspect `ctxt --json schema` before using proposal commands. Phase 4g is read-only schema introspection only: no apply, network, external agents, hooks, MCP, plugin packaging, or real execution.
 
+## Phase 4h Behavior
+
+Phase 4h adds proposal support metadata to `ctxt --json capabilities`.
+
+`ctxt --json capabilities` now advertises that proposal list, inspect, and validate are available as read-only JSON commands. Proposal apply and proposal generation remain unsupported.
+
+Phase 4h is read-only capabilities introspection only: no apply, network, external agents, hooks, MCP, plugin packaging, or real execution.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

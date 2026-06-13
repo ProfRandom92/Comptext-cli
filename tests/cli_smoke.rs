@@ -774,9 +774,45 @@ fn capabilities_json_reports_phase_four_b_introspection() {
     assert!(phases
         .iter()
         .any(|phase| { phase["phase"] == "4b" && phase["name"] == "agent-friendly CLI polish" }));
+    assert!(phases
+        .iter()
+        .any(|phase| { phase["phase"] == "4h" && phase["name"] == "proposal capabilities" }));
     assert_eq!(value["features"]["real_external_execution"], false);
     assert_eq!(value["features"]["network_gate"], false);
     assert_eq!(value["features"]["apply_gate"], false);
+}
+
+#[test]
+fn capabilities_json_reports_proposal_capabilities() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "capabilities"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("capabilities JSON should parse");
+    let features = &value["features"];
+    let commands = value["commands"]
+        .as_array()
+        .expect("commands should be an array");
+
+    assert_eq!(features["proposals_list"], true);
+    assert_eq!(features["proposals_inspect"], true);
+    assert_eq!(features["proposals_validate"], true);
+    assert_eq!(features["proposal_artifact_contract"], true);
+    assert_eq!(features["proposal_apply"], false);
+    assert_eq!(features["proposal_generation"], false);
+
+    for command_name in ["proposals list", "proposals inspect", "proposals validate"] {
+        let command = commands
+            .iter()
+            .find(|command| command["name"] == command_name)
+            .unwrap_or_else(|| panic!("missing capabilities command entry for {command_name}"));
+
+        assert_eq!(command["json"], true);
+        assert_eq!(command["side_effects"], false);
+        assert_eq!(command["read_only"], true);
+        assert_eq!(command["network_used"], false);
+        assert_eq!(command["external_agent_invoked"], false);
+        assert_eq!(command["apply_performed"], false);
+    }
 }
 
 #[test]
