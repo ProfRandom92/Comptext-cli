@@ -142,6 +142,19 @@ ctxt --json proposals validate --id latest
 
 Proposal artifacts are untrusted input. Inspection and validation are read-only, approval metadata does not apply changes, and apply behavior remains out of scope for Phase 4f.
 
+## Phase 4g Behavior
+
+Phase 4g adds proposal contracts to schema introspection.
+
+`ctxt --json schema` now describes:
+
+- `proposals list`
+- `proposals inspect`
+- `proposals validate`
+- `proposal.v1 artifact`
+
+Codex and Antigravity should inspect `ctxt --json schema` before using proposal commands. Phase 4g is read-only schema introspection only: no apply, network, external agents, hooks, MCP, plugin packaging, or real execution.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

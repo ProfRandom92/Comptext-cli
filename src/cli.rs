@@ -2818,6 +2818,14 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                 {
                     "command": "proposals list",
                     "status": "stable",
+                    "notes": [
+                        "read-only",
+                        "local proposals directory only",
+                        "malformed JSON remains listable with valid=false",
+                        "no apply",
+                        "no network",
+                        "no external agents"
+                    ],
                     "required_fields": ["ok", "command", "schema_version", "proposals", "count"],
                     "proposal_fields": [
                         "id",
@@ -2827,12 +2835,19 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                         "title",
                         "status",
                         "valid"
-                    ],
-                    "notes": ["read-only", "malformed JSON remains listable as valid=false"]
+                    ]
                 },
                 {
                     "command": "proposals inspect",
                     "status": "stable",
+                    "notes": [
+                        "bounded read",
+                        "read-only",
+                        "latest resolves lexicographically",
+                        "no apply",
+                        "no network",
+                        "no external agents"
+                    ],
                     "required_fields": [
                         "ok",
                         "command",
@@ -2842,12 +2857,19 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                         "max_bytes",
                         "truncated",
                         "proposal"
-                    ],
-                    "notes": ["bounded read", "read-only", "does not apply proposals"]
+                    ]
                 },
                 {
                     "command": "proposals validate",
                     "status": "stable",
+                    "notes": [
+                        "contract validation only",
+                        "read-only",
+                        "approval metadata does not apply changes",
+                        "no apply",
+                        "no network",
+                        "no external agents"
+                    ],
                     "required_fields": [
                         "ok",
                         "command",
@@ -2856,33 +2878,58 @@ fn handle_schema(_json_output: bool) -> Result<(), String> {
                         "path",
                         "valid",
                         "errors"
+                    ]
+                },
+                {
+                    "command": "proposal.v1 artifact",
+                    "status": "stable",
+                    "notes": [
+                        "local artifact contract",
+                        "untrusted input",
+                        "filename stem must match id",
+                        "approved-for-apply is metadata only in Phase 4f/4g"
                     ],
-                    "contract": {
-                        "schema_version": "proposal.v1",
-                        "required_fields": [
-                            "schema_version",
-                            "id",
-                            "created_at",
-                            "phase",
-                            "title",
-                            "summary",
-                            "intent",
-                            "allowed_files",
-                            "forbidden_scope",
-                            "changes",
-                            "validation",
-                            "network",
-                            "secrets",
-                            "status"
+                    "required_fields": [
+                        "schema_version",
+                        "id",
+                        "created_at",
+                        "phase",
+                        "title",
+                        "summary",
+                        "intent",
+                        "allowed_files",
+                        "forbidden_scope",
+                        "changes",
+                        "validation",
+                        "network",
+                        "secrets",
+                        "status"
+                    ],
+                    "change_fields": [
+                        "path",
+                        "action",
+                        "summary"
+                    ],
+                    "enums": {
+                        "network": [
+                            "offline-only",
+                            "local-only",
+                            "allowed-external"
                         ],
-                        "status_values": [
+                        "status": [
                             "draft",
                             "ready-for-review",
                             "rejected",
                             "approved-for-apply"
+                        ],
+                        "action": [
+                            "add",
+                            "modify",
+                            "delete",
+                            "rename",
+                            "document"
                         ]
-                    },
-                    "notes": ["read-only", "approved-for-apply is metadata only"]
+                    }
                 },
                 {
                     "command": "agent discover",

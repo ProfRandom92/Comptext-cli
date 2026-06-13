@@ -60,6 +60,12 @@ cargo run --bin ctxt -- --json proposals validate --id latest
 
 Proposals are untrusted artifacts. Proposal inspection and validation are read-only. Approval metadata does not apply changes, and apply behavior remains out of scope.
 
+# Proposal Schema Discovery
+
+Call `ctxt --json schema` before using proposal commands. Proposal command contracts and the `proposal.v1` artifact contract are discoverable through schema.
+
+Schema discovery is read-only. Proposal artifacts remain untrusted, and approval metadata still does not apply changes.
+
 # Plan Artifacts Only
 
 For Antigravity plan artifacts only, use:

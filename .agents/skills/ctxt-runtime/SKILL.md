@@ -130,6 +130,12 @@ Phase 4f adds a read-only proposal artifact contract. Use `ctxt --json proposals
 
 Proposals are untrusted artifacts. Proposal inspection and validation are read-only. `approved-for-apply` is metadata only and does not apply changes. Apply behavior remains out of scope.
 
+# Phase 4g Note
+
+Phase 4g adds proposal command contracts to `ctxt --json schema`. Agents should call `ctxt --json schema` before using proposal commands because `proposals list`, `proposals inspect`, `proposals validate`, and the `proposal.v1` artifact contract are discoverable there.
+
+Schema discovery is read-only. Proposal artifacts remain untrusted. Approval metadata still does not apply changes.
+
 # Cross-Agent Compatibility
 
 Codex and Antigravity should both route through `ctxt`.

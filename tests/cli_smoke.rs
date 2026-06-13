@@ -795,6 +795,10 @@ fn schema_json_reports_stable_contracts() {
         "capabilities",
         "runs list",
         "runs read",
+        "proposals list",
+        "proposals inspect",
+        "proposals validate",
+        "proposal.v1 artifact",
         "agent discover",
         "agent run --allow-external --proposal-only",
         "validate",
@@ -807,6 +811,74 @@ fn schema_json_reports_stable_contracts() {
     assert_eq!(value["safety"]["network_used"], false);
     assert_eq!(value["safety"]["external_agent_invoked"], false);
     assert_eq!(value["safety"]["apply_performed"], false);
+}
+
+#[test]
+fn schema_json_reports_proposal_contract_details() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+
+    let contract_for = |command: &str| -> &serde_json::Value {
+        contracts
+            .iter()
+            .find(|contract| contract["command"] == command)
+            .unwrap_or_else(|| panic!("missing schema contract for {command}"))
+    };
+
+    for command in ["proposals list", "proposals inspect", "proposals validate"] {
+        let notes = contract_for(command)["notes"]
+            .as_array()
+            .expect("proposal command notes should be an array");
+        for expected_note in ["no apply", "no network", "no external agents"] {
+            assert!(
+                notes.iter().any(|note| note == expected_note),
+                "{command} should include safety note {expected_note}"
+            );
+        }
+    }
+
+    let artifact = contract_for("proposal.v1 artifact");
+    let required_fields = artifact["required_fields"]
+        .as_array()
+        .expect("proposal artifact required_fields should be an array");
+    for field in [
+        "schema_version",
+        "id",
+        "changes",
+        "validation",
+        "network",
+        "status",
+    ] {
+        assert!(
+            required_fields.iter().any(|required| required == field),
+            "proposal.v1 artifact should require {field}"
+        );
+    }
+
+    assert!(artifact["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|note| note == "untrusted input"));
+    assert!(artifact["enums"]["network"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "offline-only"));
+    assert!(artifact["enums"]["status"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "approved-for-apply"));
+    assert!(artifact["enums"]["action"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "document"));
 }
 
 #[test]
