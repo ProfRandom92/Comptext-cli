@@ -70,6 +70,7 @@ cargo run --bin ctxt -- --json agent run --kind codex --task "..." --allow-exter
 cargo run --bin ctxt -- --json agent run --kind antigravity --task "..." --allow-external --proposal-only
 cargo run --bin ctxt -- --json artifacts read .comptext/runs/latest/run.json --max-bytes 12000
 cargo run --bin ctxt -- --json capabilities
+cargo run --bin ctxt -- --json schema
 cargo run --bin ctxt -- --json runs list
 cargo run --bin ctxt -- --json runs read latest --max-bytes 12000
 ```
@@ -108,6 +109,10 @@ cargo run --bin ctxt -- --json runs read latest --max-bytes 12000
 # Phase 4b Note
 
 Phase 4b adds read-only agent-friendly CLI introspection. Use `ctxt --json capabilities`, `ctxt --json runs list`, and bounded `ctxt --json runs read latest --max-bytes 12000` before reaching for raw artifact paths. These commands do not invoke external agents, use network, apply proposals, or add real external execution.
+
+# Phase 4c Note
+
+Phase 4c adds read-only JSON contract introspection. Use `ctxt --json schema` when a future agent needs stable output shape summaries for supported JSON commands. The schema command is static and does not read files, write files, invoke external agents, use network, apply proposals, or add real external execution.
 
 # Artifact-First Behavior
 

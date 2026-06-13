@@ -74,6 +74,21 @@ Phase 4b adds read-only, agent-friendly CLI introspection.
 
 These commands are read-only. They do not use network, do not invoke external agents, do not execute version commands, do not apply proposals, and do not add real external execution.
 
+## Phase 4c Behavior
+
+Phase 4c adds read-only JSON contract introspection.
+
+`ctxt --json schema` reports stable machine-readable contract summaries for major JSON outputs:
+
+- `capabilities`
+- `runs list`
+- `runs read`
+- `agent discover`
+- `agent run --allow-external --proposal-only`
+- `validate`
+
+The schema command returns static JSON only. It does not read files, write files, use network, invoke external agents, apply proposals, or add real external execution.
+
 ## Future Phases
 
 Later phases may add real Codex CLI or Antigravity CLI invocation behind explicit gates. Those phases should preserve the run artifact, keep JSON output machine-readable, and record provenance before and after external execution.

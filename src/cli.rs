@@ -104,6 +104,7 @@ enum Command {
         run: bool,
     },
     Capabilities,
+    Schema,
     RunsList,
     RunsRead {
         id: String,
@@ -360,6 +361,13 @@ where
             }
         },
         Ok(Command::Capabilities) => match handle_capabilities(json_output) {
+            Ok(_) => 0,
+            Err(e) => {
+                emit_error(json_output, &e);
+                1
+            }
+        },
+        Ok(Command::Schema) => match handle_schema(json_output) {
             Ok(_) => 0,
             Err(e) => {
                 emit_error(json_output, &e);
@@ -711,6 +719,12 @@ fn parse(argv: &[String]) -> Result<Command, String> {
                 ));
             }
             Ok(Command::Capabilities)
+        }
+        "schema" => {
+            if argv.len() > 1 {
+                return Err(format!("unexpected argument '{}' for schema", argv[1]));
+            }
+            Ok(Command::Schema)
         }
         "init" => {
             let mut out_path = None;
@@ -2549,6 +2563,107 @@ fn handle_capabilities(_json_output: bool) -> Result<(), String> {
                     "bounded_read": true
                 }
             ]
+        })
+    );
+    Ok(())
+}
+
+fn handle_schema(_json_output: bool) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "command": "schema",
+            "schema_version": "0.1",
+            "contracts": [
+                {
+                    "command": "capabilities",
+                    "status": "stable",
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "phases",
+                        "safety",
+                        "features",
+                        "commands"
+                    ],
+                    "notes": ["read-only", "no network", "no external agents"]
+                },
+                {
+                    "command": "runs list",
+                    "status": "stable",
+                    "required_fields": ["ok", "command", "schema_version", "runs"],
+                    "run_fields": ["id", "path", "exists"],
+                    "notes": ["read-only"]
+                },
+                {
+                    "command": "runs read",
+                    "status": "stable",
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "schema_version",
+                        "id",
+                        "path",
+                        "kind",
+                        "max_bytes",
+                        "truncated",
+                        "content"
+                    ],
+                    "notes": ["bounded read", "read-only"]
+                },
+                {
+                    "command": "agent discover",
+                    "status": "stable",
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "kind",
+                        "discovered",
+                        "path",
+                        "version",
+                        "external_agent_invoked",
+                        "network_used",
+                        "notes"
+                    ],
+                    "notes": ["PATH metadata only", "version is null in Phase 3/4"]
+                },
+                {
+                    "command": "agent run --allow-external --proposal-only",
+                    "status": "stable",
+                    "required_fields": [
+                        "ok",
+                        "command",
+                        "kind",
+                        "task",
+                        "dry_run",
+                        "external_execution",
+                        "allow_external",
+                        "proposal_only",
+                        "status",
+                        "would_run",
+                        "execution_plan",
+                        "safety",
+                        "run_artifact"
+                    ],
+                    "notes": ["writes local artifacts", "does not invoke external agents"]
+                },
+                {
+                    "command": "validate",
+                    "status": "stable",
+                    "required_fields": ["ok", "command", "run"],
+                    "notes": [
+                        "validate --run may execute local validation commands by explicit user action"
+                    ]
+                }
+            ],
+            "safety": {
+                "read_only": true,
+                "network_used": false,
+                "external_agent_invoked": false,
+                "apply_performed": false
+            }
         })
     );
     Ok(())

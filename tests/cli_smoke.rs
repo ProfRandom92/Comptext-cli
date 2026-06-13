@@ -425,6 +425,54 @@ fn capabilities_json_reports_phase_four_b_introspection() {
 }
 
 #[test]
+fn schema_json_reports_stable_contracts() {
+    let _guard = test_lock();
+    let stdout = run(&["--json", "schema"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("schema JSON should parse");
+    let contracts = value["contracts"]
+        .as_array()
+        .expect("contracts should be an array");
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["command"], "schema");
+    assert_eq!(value["schema_version"], "0.1");
+    for command in [
+        "capabilities",
+        "runs list",
+        "runs read",
+        "agent discover",
+        "agent run --allow-external --proposal-only",
+        "validate",
+    ] {
+        assert!(contracts
+            .iter()
+            .any(|contract| contract["command"] == command));
+    }
+    assert_eq!(value["safety"]["read_only"], true);
+    assert_eq!(value["safety"]["network_used"], false);
+    assert_eq!(value["safety"]["external_agent_invoked"], false);
+    assert_eq!(value["safety"]["apply_performed"], false);
+}
+
+#[test]
+fn schema_unexpected_arg_fails_with_json_error() {
+    let _guard = test_lock();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(["--json", "schema", "unexpected"])
+        .output()
+        .expect("ctxt binary should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    let value: serde_json::Value = serde_json::from_str(&stderr).expect("error JSON should parse");
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unexpected argument"));
+}
+
+#[test]
 fn agent_list_json_reports_phase_one_agents() {
     let _guard = test_lock();
     let stdout = run(&["--json", "agent", "list"]);
