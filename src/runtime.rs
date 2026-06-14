@@ -5,6 +5,63 @@ use std::path::{Component, Path};
 
 const DEFAULT_MAX_FILE_BYTES: u64 = 64 * 1024;
 
+#[derive(Debug, Clone)]
+struct McpError {
+    code: i64,
+    message: &'static str,
+    kind: &'static str,
+    detail: String,
+}
+
+impl McpError {
+    fn new(code: i64, message: &'static str, kind: &'static str, detail: &str) -> Self {
+        Self {
+            code,
+            message,
+            kind,
+            detail: bounded_mcp_detail(detail),
+        }
+    }
+
+    fn parse_error(detail: &str) -> Self {
+        Self::new(-32700, "parse error", "parse_error", detail)
+    }
+
+    fn method_not_found(detail: &str) -> Self {
+        Self::new(-32601, "method not found", "method_not_found", detail)
+    }
+
+    fn invalid_params(detail: &str) -> Self {
+        Self::new(-32602, "invalid params", "invalid_params", detail)
+    }
+
+    fn access_denied(detail: &str) -> Self {
+        Self::new(-32000, "access denied", "access_denied", detail)
+    }
+
+    fn denied_sensitive_path(detail: &str) -> Self {
+        Self::new(
+            -32000,
+            "denied sensitive path",
+            "denied_sensitive_path",
+            detail,
+        )
+    }
+
+    fn outside_allowed_root(detail: &str) -> Self {
+        Self::new(
+            -32000,
+            "outside allowed root",
+            "outside_allowed_root",
+            detail,
+        )
+    }
+
+    fn file_too_large(detail: &str) -> Self {
+        Self::new(-32000, "file too large", "file_too_large", detail)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolicCommand {
     pub command: String,
@@ -490,9 +547,10 @@ fn serve_mcp(allowed_root: &Path) -> Result<(), String> {
         if line.trim().is_empty() {
             continue;
         }
-        let request: serde_json::Value = serde_json::from_str(&line)
-            .map_err(|e| format!("failed to parse MCP JSON-RPC request: {e}"))?;
-        let response = handle_mcp_request(allowed_root, &request);
+        let response = match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(request) => handle_mcp_request(allowed_root, &request),
+            Err(_) => mcp_error_response(json!(null), McpError::parse_error("malformed JSON")),
+        };
         writeln!(stdout, "{}", response)
             .map_err(|e| format!("failed to write MCP response: {e}"))?;
         stdout
@@ -504,7 +562,18 @@ fn serve_mcp(allowed_root: &Path) -> Result<(), String> {
 
 fn handle_mcp_request(allowed_root: &Path, request: &serde_json::Value) -> serde_json::Value {
     let id = request.get("id").cloned().unwrap_or(json!(null));
-    let method = request["method"].as_str().unwrap_or("");
+    if !request.is_object() {
+        return mcp_error_response(
+            id,
+            McpError::invalid_params("request must be a JSON object"),
+        );
+    }
+    let Some(method) = request.get("method").and_then(|method| method.as_str()) else {
+        return mcp_error_response(
+            id,
+            McpError::invalid_params("request method must be a string"),
+        );
+    };
     let result = match method {
         "initialize" => Ok(json!({
             "protocolVersion": "2025-06-18",
@@ -526,83 +595,119 @@ fn handle_mcp_request(allowed_root: &Path, request: &serde_json::Value) -> serde
             }]
         })),
         "tools/call" => {
-            let params = &request["params"];
-            if params["name"] != "ctxt.read_file" {
-                Err("unsupported tool".to_string())
-            } else {
-                let args = &params["arguments"];
-                match args["path"].as_str() {
-                    Some(path) => {
-                        let max_bytes = args["max_bytes"]
-                            .as_u64()
-                            .unwrap_or(DEFAULT_MAX_FILE_BYTES)
-                            .min(DEFAULT_MAX_FILE_BYTES);
-                        read_allowed_file(allowed_root, path, max_bytes).map(|payload| {
-                            json!({
-                                "content": [{"type": "text", "text": payload["text"]}],
-                                "structuredContent": payload
-                            })
-                        })
-                    }
-                    None => Err("missing path".to_string()),
+            let params = request
+                .get("params")
+                .and_then(|params| params.as_object())
+                .ok_or_else(|| McpError::invalid_params("params must be an object"));
+            params.and_then(|params| {
+                if params.get("name").and_then(|name| name.as_str()) != Some("ctxt.read_file") {
+                    return Err(McpError::invalid_params("unsupported tool name"));
                 }
-            }
+                let args = params
+                    .get("arguments")
+                    .and_then(|arguments| arguments.as_object())
+                    .ok_or_else(|| McpError::invalid_params("arguments must be an object"))?;
+                let path = args
+                    .get("path")
+                    .and_then(|path| path.as_str())
+                    .ok_or_else(|| McpError::invalid_params("path must be a string"))?;
+                let max_bytes = match args.get("max_bytes") {
+                    Some(value) => value
+                        .as_u64()
+                        .ok_or_else(|| McpError::invalid_params("max_bytes must be an integer"))?
+                        .min(DEFAULT_MAX_FILE_BYTES),
+                    None => DEFAULT_MAX_FILE_BYTES,
+                };
+                read_allowed_file(allowed_root, path, max_bytes).map(|payload| {
+                    json!({
+                        "content": [{"type": "text", "text": payload["text"]}],
+                        "structuredContent": payload
+                    })
+                })
+            })
         }
-        _ => Err(format!("unsupported MCP method '{method}'")),
+        _ => Err(McpError::method_not_found("unsupported MCP method")),
     };
 
     match result {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-        Err(message) => {
-            json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": message}})
-        }
+        Err(error) => mcp_error_response(id, error),
     }
+}
+
+fn mcp_error_response(id: serde_json::Value, error: McpError) -> serde_json::Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": error.code,
+            "message": error.message,
+            "data": {
+                "kind": error.kind,
+                "detail": error.detail
+            }
+        }
+    })
+}
+
+fn bounded_mcp_detail(detail: &str) -> String {
+    detail
+        .chars()
+        .filter(|ch| !matches!(ch, '\r' | '\n'))
+        .take(200)
+        .collect()
 }
 
 fn read_allowed_file(
     allowed_root: &Path,
     requested: &str,
     max_bytes: u64,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, McpError> {
     let allowed_root = std::fs::canonicalize(allowed_root)
-        .map_err(|e| format!("failed to resolve allowed root: {e}"))?;
+        .map_err(|_| McpError::access_denied("allowed root could not be resolved"))?;
     let requested_path = Path::new(requested);
     if requested_path.is_absolute() {
-        return Err("absolute paths are blocked for MCP file inputs".to_string());
+        return Err(McpError::access_denied(
+            "absolute paths are blocked for MCP file inputs",
+        ));
     }
     if requested_path
         .components()
         .any(|component| matches!(component, Component::ParentDir))
     {
-        return Err("path traversal is blocked".to_string());
+        return Err(McpError::access_denied("path traversal is blocked"));
     }
-    reject_sensitive_path(requested_path)?;
+    reject_sensitive_path(requested_path)
+        .map_err(|_| McpError::denied_sensitive_path("sensitive path is blocked"))?;
     let candidate = allowed_root.join(requested_path);
     let canonical = std::fs::canonicalize(&candidate)
-        .map_err(|e| format!("failed to resolve requested path: {e}"))?;
-    reject_sensitive_path(&canonical)?;
+        .map_err(|_| McpError::access_denied("requested path could not be resolved"))?;
+    reject_sensitive_path(&canonical)
+        .map_err(|_| McpError::denied_sensitive_path("sensitive path is blocked"))?;
     if !canonical.starts_with(&allowed_root) {
-        return Err("resolved path is outside allowed root".to_string());
-    }
-    let metadata =
-        std::fs::metadata(&canonical).map_err(|e| format!("failed to stat requested file: {e}"))?;
-    if !metadata.is_file() {
-        return Err("requested path is not a file".to_string());
-    }
-    if metadata.len() > DEFAULT_MAX_FILE_BYTES {
-        return Err(format!(
-            "file is too large: {} bytes exceeds max {}",
-            metadata.len(),
-            DEFAULT_MAX_FILE_BYTES
+        return Err(McpError::outside_allowed_root(
+            "resolved path is outside allowed root",
         ));
     }
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|_| McpError::access_denied("file metadata denied"))?;
+    if !metadata.is_file() {
+        return Err(McpError::invalid_params("requested path is not a file"));
+    }
+    if metadata.len() > DEFAULT_MAX_FILE_BYTES {
+        return Err(McpError::file_too_large(&format!(
+            "file size {} exceeds max {}",
+            metadata.len(),
+            DEFAULT_MAX_FILE_BYTES
+        )));
+    }
     let mut file =
-        std::fs::File::open(&canonical).map_err(|e| format!("failed to read file: {e}"))?;
+        std::fs::File::open(&canonical).map_err(|_| McpError::access_denied("file open denied"))?;
     let mut bytes = Vec::new();
     std::io::Read::by_ref(&mut file)
         .take(max_bytes)
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("failed to read file: {e}"))?;
+        .map_err(|_| McpError::access_denied("file read denied"))?;
     let rel = canonical
         .strip_prefix(&allowed_root)
         .unwrap_or(&canonical)

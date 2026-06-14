@@ -123,6 +123,15 @@ fn run_with_stdin_in_dir(args: &[&str], stdin: &str, current_dir: &std::path::Pa
     String::from_utf8(output.stdout).expect("stdout should be UTF-8")
 }
 
+fn assert_mcp_error(value: &serde_json::Value, id: serde_json::Value, code: i64, kind: &str) {
+    assert_eq!(value["jsonrpc"], "2.0");
+    assert_eq!(value["id"], id);
+    assert_eq!(value["error"]["code"], code);
+    assert!(value["error"]["message"].as_str().unwrap().len() > 0);
+    assert_eq!(value["error"]["data"]["kind"], kind);
+    assert!(value["error"]["data"]["detail"].as_str().unwrap().len() > 0);
+}
+
 #[cfg(unix)]
 fn create_file_link(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
@@ -498,6 +507,61 @@ fn ctxt_mcp_allows_rooted_file_read() {
 }
 
 #[test]
+fn ctxt_mcp_returns_structured_parse_error_for_malformed_json() {
+    let _guard = test_lock();
+    let stdout = run_with_stdin(&["mcp", "serve", "--allowed-root", "."], "{not json\n");
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP error response should parse");
+
+    assert_mcp_error(&value, serde_json::json!(null), -32700, "parse_error");
+}
+
+#[test]
+fn ctxt_mcp_returns_structured_method_not_found() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "missing",
+        "method": "missing/method"
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP error response should parse");
+
+    assert_mcp_error(
+        &value,
+        serde_json::json!("missing"),
+        -32601,
+        "method_not_found",
+    );
+}
+
+#[test]
+fn ctxt_mcp_returns_structured_invalid_params() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"max_bytes": "large"}
+        }
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP error response should parse");
+
+    assert_mcp_error(&value, serde_json::json!(6), -32602, "invalid_params");
+}
+
+#[test]
 fn ctxt_mcp_blocks_traversal() {
     let _guard = test_lock();
     let request = serde_json::json!({
@@ -515,7 +579,8 @@ fn ctxt_mcp_blocks_traversal() {
     );
     let value: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("MCP response should parse");
-    assert!(value["error"]["message"]
+    assert_mcp_error(&value, serde_json::json!(2), -32000, "access_denied");
+    assert!(value["error"]["data"]["detail"]
         .as_str()
         .unwrap()
         .contains("traversal"));
@@ -539,10 +604,16 @@ fn ctxt_mcp_blocks_sensitive_paths_without_reading_content() {
     );
     let value: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("MCP response should parse");
-    assert!(value["error"]["message"]
+    assert_mcp_error(
+        &value,
+        serde_json::json!(3),
+        -32000,
+        "denied_sensitive_path",
+    );
+    assert!(!value["error"]["data"]["detail"]
         .as_str()
         .unwrap()
-        .contains("sensitive path"));
+        .contains("token-note.txt"));
 }
 
 #[test]
@@ -574,10 +645,7 @@ fn ctxt_mcp_blocks_symlink_escape_when_supported() {
     );
     let value: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("MCP response should parse");
-    assert!(value["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("outside allowed root"));
+    assert_mcp_error(&value, serde_json::json!(5), -32000, "outside_allowed_root");
 }
 
 #[test]
@@ -602,6 +670,31 @@ fn ctxt_mcp_reports_returned_byte_hash_scope() {
     assert_eq!(payload["sha256_scope"], "returned_bytes");
     assert_eq!(payload["returned_bytes"], 16);
     assert!(payload["file_bytes"].as_u64().unwrap() >= 16);
+}
+
+#[test]
+fn ctxt_mcp_blocks_file_too_large() {
+    let _guard = test_lock();
+    let fixture = std::path::Path::new("large-mcp-smoke.txt");
+    let _fixture_guard = FileGuard::new(fixture);
+    std::fs::write(fixture, vec![b'x'; 64 * 1024 + 1]).unwrap();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"path": "large-mcp-smoke.txt"}
+        }
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP response should parse");
+
+    assert_mcp_error(&value, serde_json::json!(7), -32000, "file_too_large");
 }
 
 #[test]
