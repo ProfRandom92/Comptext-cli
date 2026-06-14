@@ -89,8 +89,24 @@ fn run_fail(args: &[&str]) -> serde_json::Value {
     serde_json::from_str(&stderr).expect("error JSON should parse")
 }
 
+fn run_fail_in_dir(args: &[&str], current_dir: &std::path::Path) -> serde_json::Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .current_dir(current_dir)
+        .args(args)
+        .output()
+        .expect("ctxt binary should run");
+    assert!(!output.status.success(), "command should fail: {args:?}");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    serde_json::from_str(&stderr).expect("error JSON should parse")
+}
+
 fn run_with_stdin(args: &[&str], stdin: &str) -> String {
+    run_with_stdin_in_dir(args, stdin, std::path::Path::new("."))
+}
+
+fn run_with_stdin_in_dir(args: &[&str], stdin: &str, current_dir: &std::path::Path) -> String {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .current_dir(current_dir)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -105,6 +121,42 @@ fn run_with_stdin(args: &[&str], stdin: &str) -> String {
     let output = child.wait_with_output().expect("ctxt should exit");
     assert!(output.status.success(), "command failed: {args:?}");
     String::from_utf8(output.stdout).expect("stdout should be UTF-8")
+}
+
+#[cfg(unix)]
+fn create_file_link(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_file_link(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
+}
+
+fn symlink_escape_fixture(
+    root_name: &str,
+    outside_name: &str,
+    outside_file_name: &str,
+    outside_content: &[u8],
+    link_name: &str,
+) -> Option<(DirGuard, DirGuard, std::path::PathBuf)> {
+    let root = std::path::PathBuf::from(root_name);
+    let outside = std::path::PathBuf::from(outside_name);
+    let root_guard = DirGuard::new(&root);
+    let outside_guard = DirGuard::new(&outside);
+
+    std::fs::create_dir(&root).expect("fixture root should be created");
+    std::fs::create_dir(&outside).expect("outside fixture should be created");
+    let outside_file = outside.join(outside_file_name);
+    std::fs::write(&outside_file, outside_content).expect("outside fixture file should be written");
+
+    let outside_file =
+        std::fs::canonicalize(&outside_file).expect("outside fixture file should canonicalize");
+    let link = root.join(link_name);
+    match create_file_link(&outside_file, &link) {
+        Ok(()) => Some((root_guard, outside_guard, root)),
+        Err(_) => None,
+    }
 }
 
 fn valid_phase_4f_proposal(id: &str) -> serde_json::Value {
@@ -357,6 +409,49 @@ fn ctxt_evidence_hash_rejects_sensitive_and_traversal_paths() {
 }
 
 #[test]
+fn ctxt_evidence_hash_rejects_symlink_escape_when_supported() {
+    let _guard = test_lock();
+    let Some((_root_guard, _outside_guard, root)) = symlink_escape_fixture(
+        "canonical-evidence-root-smoke",
+        "canonical-evidence-outside-smoke",
+        "outside.txt",
+        b"outside evidence",
+        "linked-evidence.txt",
+    ) else {
+        return;
+    };
+
+    let error = run_fail_in_dir(
+        &["evidence", "hash", "linked-evidence.txt", "--json"],
+        &root,
+    );
+    assert!(error["error"]
+        .as_str()
+        .unwrap()
+        .contains("outside current worktree"));
+}
+
+#[test]
+fn ctxt_dsl_validate_rejects_symlink_escape_when_supported() {
+    let _guard = test_lock();
+    let Some((_root_guard, _outside_guard, root)) = symlink_escape_fixture(
+        "canonical-dsl-root-smoke",
+        "canonical-dsl-outside-smoke",
+        "outside.ctxt",
+        b"$ctxt-runtime\n@workspace/README.md\n",
+        "linked.ctxt",
+    ) else {
+        return;
+    };
+
+    let error = run_fail_in_dir(&["dsl", "validate", "linked.ctxt", "--json"], &root);
+    assert!(error["error"]
+        .as_str()
+        .unwrap()
+        .contains("outside current worktree"));
+}
+
+#[test]
 fn ctxt_evidence_hash_matches_empty_file_vector() {
     let _guard = test_lock();
     let fixture = std::path::Path::new("empty-hash-smoke.txt");
@@ -448,6 +543,41 @@ fn ctxt_mcp_blocks_sensitive_paths_without_reading_content() {
         .as_str()
         .unwrap()
         .contains("sensitive path"));
+}
+
+#[test]
+fn ctxt_mcp_blocks_symlink_escape_when_supported() {
+    let _guard = test_lock();
+    let Some((_root_guard, _outside_guard, root)) = symlink_escape_fixture(
+        "canonical-mcp-root-smoke",
+        "canonical-mcp-outside-smoke",
+        "outside.txt",
+        b"outside mcp",
+        "linked.txt",
+    ) else {
+        return;
+    };
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"path": "linked.txt"}
+        }
+    });
+
+    let stdout = run_with_stdin_in_dir(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+        &root,
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP response should parse");
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("outside allowed root"));
 }
 
 #[test]

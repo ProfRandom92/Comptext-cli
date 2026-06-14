@@ -564,9 +564,11 @@ fn read_allowed_file(
     requested: &str,
     max_bytes: u64,
 ) -> Result<serde_json::Value, String> {
+    let allowed_root = std::fs::canonicalize(allowed_root)
+        .map_err(|e| format!("failed to resolve allowed root: {e}"))?;
     let requested_path = Path::new(requested);
-    if requested_path.is_absolute() && !requested_path.starts_with(allowed_root) {
-        return Err("absolute path is outside allowed root".to_string());
+    if requested_path.is_absolute() {
+        return Err("absolute paths are blocked for MCP file inputs".to_string());
     }
     if requested_path
         .components()
@@ -575,15 +577,11 @@ fn read_allowed_file(
         return Err("path traversal is blocked".to_string());
     }
     reject_sensitive_path(requested_path)?;
-    let candidate = if requested_path.is_absolute() {
-        requested_path.to_path_buf()
-    } else {
-        allowed_root.join(requested_path)
-    };
+    let candidate = allowed_root.join(requested_path);
     let canonical = std::fs::canonicalize(&candidate)
         .map_err(|e| format!("failed to resolve requested path: {e}"))?;
     reject_sensitive_path(&canonical)?;
-    if !canonical.starts_with(allowed_root) {
+    if !canonical.starts_with(&allowed_root) {
         return Err("resolved path is outside allowed root".to_string());
     }
     let metadata =
@@ -606,7 +604,7 @@ fn read_allowed_file(
         .read_to_end(&mut bytes)
         .map_err(|e| format!("failed to read file: {e}"))?;
     let rel = canonical
-        .strip_prefix(allowed_root)
+        .strip_prefix(&allowed_root)
         .unwrap_or(&canonical)
         .to_string_lossy()
         .replace('\\', "/");
@@ -631,7 +629,8 @@ fn read_runtime_text(path: &str, label: &str) -> Result<String, String> {
 fn read_runtime_bytes(path: &str, label: &str) -> Result<Vec<u8>, String> {
     let requested_path = Path::new(path);
     validate_local_input_path(requested_path)?;
-    let metadata = std::fs::metadata(requested_path)
+    let canonical = canonical_runtime_input_path(requested_path)?;
+    let metadata = std::fs::metadata(&canonical)
         .map_err(|e| format!("failed to stat {label} '{}': {e}", requested_path.display()))?;
     if !metadata.is_file() {
         return Err(format!("{label} is not a file"));
@@ -643,8 +642,28 @@ fn read_runtime_bytes(path: &str, label: &str) -> Result<Vec<u8>, String> {
             DEFAULT_MAX_FILE_BYTES
         ));
     }
-    std::fs::read(requested_path)
+    std::fs::read(&canonical)
         .map_err(|e| format!("failed to read {label} '{}': {e}", requested_path.display()))
+}
+
+fn canonical_runtime_input_path(path: &Path) -> Result<std::path::PathBuf, String> {
+    let root = std::env::current_dir()
+        .map_err(|e| format!("failed to determine current worktree root: {e}"))
+        .and_then(|cwd| {
+            std::fs::canonicalize(&cwd)
+                .map_err(|e| format!("failed to resolve current worktree root: {e}"))
+        })?;
+    let canonical = std::fs::canonicalize(path).map_err(|e| {
+        format!(
+            "failed to resolve runtime file input '{}': {e}",
+            path.display()
+        )
+    })?;
+    reject_sensitive_path(&canonical)?;
+    if !canonical.starts_with(&root) {
+        return Err("resolved path is outside current worktree".to_string());
+    }
+    Ok(canonical)
 }
 
 fn validate_local_input_path(path: &Path) -> Result<(), String> {
