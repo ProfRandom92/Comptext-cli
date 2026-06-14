@@ -244,6 +244,45 @@ fn ctxt_rejects_invalid_command_language_and_modifier() {
 }
 
 #[test]
+fn ctxt_rejects_ambiguous_and_malformed_symbolic_commands() {
+    let _guard = test_lock();
+    let cases = [
+        ("C;;P:FIB", "empty command segment"),
+        ("C;P:FIB;R:ALT", "duplicate language segment"),
+        ("C", "missing task"),
+        ("C;P:BAD TASK", "invalid task"),
+        ("C:FIB;P:BAR", "ambiguous task segments"),
+    ];
+
+    for (input, expected) in cases {
+        let error = run_fail(&["parse", input, "--json"]);
+        assert!(
+            error["error"].as_str().unwrap().contains(expected),
+            "expected {input} to fail with {expected}, got {error}"
+        );
+    }
+}
+
+#[test]
+fn ctxt_batch_rejects_malformed_items() {
+    let _guard = test_lock();
+    let cases = [
+        ("[C:FIB]", "batch expression must start"),
+        ("B:C:FIB", "must be wrapped"),
+        ("B:[C:FIB]|", "must be wrapped"),
+        ("B:[Z:FIB]", "invalid command"),
+    ];
+
+    for (input, expected) in cases {
+        let error = run_fail(&["batch", input, "--json"]);
+        assert!(
+            error["error"].as_str().unwrap().contains(expected),
+            "expected {input} to fail with {expected}, got {error}"
+        );
+    }
+}
+
+#[test]
 fn ctxt_dsl_validate_accepts_basic_fixture() {
     let _guard = test_lock();
     let stdout = run(&["dsl", "validate", "examples/basic.ctxt", "--json"]);
@@ -257,6 +296,38 @@ fn ctxt_dsl_validate_accepts_basic_fixture() {
 }
 
 #[test]
+fn ctxt_dsl_validate_rejects_invalid_fixture() {
+    let _guard = test_lock();
+    let fixture = std::path::Path::new("examples/invalid-smoke.ctxt");
+    let _fixture_guard = FileGuard::new(fixture);
+    std::fs::write(
+        fixture,
+        "$bad skill\n@../secret\ntool missing_description { name: demo }\ntask broken {\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(["dsl", "validate", "examples/invalid-smoke.ctxt", "--json"])
+        .output()
+        .expect("ctxt binary should run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout).expect("DSL invalid report should parse");
+    assert_eq!(report["valid"], false);
+    assert!(report["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("invalid skill")));
+    assert!(report["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("invalid resource")));
+}
+
+#[test]
 fn ctxt_evidence_hash_is_stable_sha256() {
     let _guard = test_lock();
     let stdout = run(&["evidence", "hash", "examples/trace.txt", "--json"]);
@@ -267,6 +338,39 @@ fn ctxt_evidence_hash_is_stable_sha256() {
         serde_json::from_str(&stdout_again).expect("evidence hash JSON should parse");
     assert_eq!(first["sha256"], second["sha256"]);
     assert_eq!(first["algorithm"], "sha256");
+}
+
+#[test]
+fn ctxt_evidence_hash_rejects_sensitive_and_traversal_paths() {
+    let _guard = test_lock();
+    let sensitive = run_fail(&["evidence", "hash", "token-note.txt", "--json"]);
+    assert!(sensitive["error"]
+        .as_str()
+        .unwrap()
+        .contains("sensitive path"));
+
+    let traversal = run_fail(&["evidence", "hash", "../README.md", "--json"]);
+    assert!(traversal["error"]
+        .as_str()
+        .unwrap()
+        .contains("path traversal"));
+}
+
+#[test]
+fn ctxt_evidence_hash_matches_empty_file_vector() {
+    let _guard = test_lock();
+    let fixture = std::path::Path::new("empty-hash-smoke.txt");
+    let _fixture_guard = FileGuard::new(fixture);
+    std::fs::write(fixture, b"").unwrap();
+
+    let stdout = run(&["evidence", "hash", "empty-hash-smoke.txt", "--json"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("evidence hash JSON should parse");
+    assert_eq!(
+        value["sha256"],
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+    assert_eq!(value["bytes"], 0);
 }
 
 #[test]
@@ -323,6 +427,54 @@ fn ctxt_mcp_blocks_traversal() {
 }
 
 #[test]
+fn ctxt_mcp_blocks_sensitive_paths_without_reading_content() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"path": "token-note.txt"}
+        }
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP response should parse");
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("sensitive path"));
+}
+
+#[test]
+fn ctxt_mcp_reports_returned_byte_hash_scope() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"path": "README.md", "max_bytes": 16}
+        }
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP response should parse");
+    let payload = &value["result"]["structuredContent"];
+    assert_eq!(payload["sha256_scope"], "returned_bytes");
+    assert_eq!(payload["returned_bytes"], 16);
+    assert!(payload["file_bytes"].as_u64().unwrap() >= 16);
+}
+
+#[test]
 fn ctxt_detect_illegible_cot_flags_trace_fixture() {
     let _guard = test_lock();
     let stdout = run(&["detect-illegible-cot", "examples/trace.txt", "--json"]);
@@ -337,6 +489,9 @@ fn help_mentions_safety_defaults() {
     let stdout = run(&["--help"]);
     assert!(stdout.contains("SAFETY DEFAULTS"));
     assert!(stdout.contains("network_default=deny"));
+    assert!(stdout.contains("parse"));
+    assert!(stdout.contains("evidence hash"));
+    assert!(stdout.contains("detect-illegible-cot"));
 }
 
 #[test]

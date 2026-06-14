@@ -125,8 +125,7 @@ fn run_dsl(argv: &[String], json_output: bool) -> Result<(), String> {
     if argv.len() != 2 || argv[0] != "validate" {
         return Err("usage: ctxt dsl validate <path> [--json]".to_string());
     }
-    let text = std::fs::read_to_string(&argv[1])
-        .map_err(|e| format!("failed to read DSL file '{}': {e}", argv[1]))?;
+    let text = read_runtime_text(&argv[1], "DSL file")?;
     let report = validate_dsl(&text);
     if json_output {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -135,16 +134,18 @@ fn run_dsl(argv: &[String], json_output: bool) -> Result<(), String> {
     } else {
         println!("DSL invalid: {}", report["errors"]);
     }
-    Ok(())
+    if report["valid"] == true {
+        Ok(())
+    } else {
+        Err("DSL validation failed".to_string())
+    }
 }
 
 fn run_evidence(argv: &[String], json_output: bool) -> Result<(), String> {
     if argv.len() != 2 || argv[0] != "hash" {
         return Err("usage: ctxt evidence hash <path> [--json]".to_string());
     }
-    let path = Path::new(&argv[1]);
-    let bytes =
-        std::fs::read(path).map_err(|e| format!("failed to read '{}': {e}", path.display()))?;
+    let bytes = read_runtime_bytes(&argv[1], "evidence file")?;
     let digest = sha256_hex(&bytes);
     let normalized_path = argv[1].replace('\\', "/");
     if json_output {
@@ -184,8 +185,7 @@ fn run_detect(argv: &[String], json_output: bool) -> Result<(), String> {
     if argv.len() != 1 {
         return Err("usage: ctxt detect-illegible-cot <path> [--json]".to_string());
     }
-    let text = std::fs::read_to_string(&argv[0])
-        .map_err(|e| format!("failed to read trace file '{}': {e}", argv[0]))?;
+    let text = read_runtime_text(&argv[0], "trace file")?;
     let report = detect_illegible_cot(&text);
     if json_output {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -230,6 +230,9 @@ fn parse_symbolic(raw: &str) -> Result<SymbolicCommand, String> {
             "P" | "R" | "J" | "T" | "G" | "S" | "M" | "Q" => {
                 if language_code.is_some() {
                     return Err("duplicate language segment".to_string());
+                }
+                if task.is_some() {
+                    return Err("ambiguous task segments".to_string());
                 }
                 language_code = Some(key.to_string());
                 task = Some(value.to_string());
@@ -470,6 +473,10 @@ fn valid_prefixed_identifier(line: &str, prefix: char) -> bool {
 fn valid_resource_ref(line: &str) -> bool {
     let value = line.trim_start_matches('@');
     !value.is_empty()
+        && !value.starts_with('/')
+        && !value.starts_with('\\')
+        && !value.split('/').any(|part| part == "..")
+        && !value.split('\\').any(|part| part == "..")
         && value
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.'))
@@ -567,6 +574,7 @@ fn read_allowed_file(
     {
         return Err("path traversal is blocked".to_string());
     }
+    reject_sensitive_path(requested_path)?;
     let candidate = if requested_path.is_absolute() {
         requested_path.to_path_buf()
     } else {
@@ -574,6 +582,7 @@ fn read_allowed_file(
     };
     let canonical = std::fs::canonicalize(&candidate)
         .map_err(|e| format!("failed to resolve requested path: {e}"))?;
+    reject_sensitive_path(&canonical)?;
     if !canonical.starts_with(allowed_root) {
         return Err("resolved path is outside allowed root".to_string());
     }
@@ -605,10 +614,76 @@ fn read_allowed_file(
         "file": rel,
         "path": rel,
         "bytes": bytes.len(),
+        "file_bytes": metadata.len(),
+        "returned_bytes": bytes.len(),
         "truncated": metadata.len() > bytes.len() as u64,
         "sha256": sha256_hex(&bytes),
+        "sha256_scope": "returned_bytes",
         "text": String::from_utf8_lossy(&bytes)
     }))
+}
+
+fn read_runtime_text(path: &str, label: &str) -> Result<String, String> {
+    let bytes = read_runtime_bytes(path, label)?;
+    String::from_utf8(bytes).map_err(|e| format!("{label} is not valid UTF-8: {e}"))
+}
+
+fn read_runtime_bytes(path: &str, label: &str) -> Result<Vec<u8>, String> {
+    let requested_path = Path::new(path);
+    validate_local_input_path(requested_path)?;
+    let metadata = std::fs::metadata(requested_path)
+        .map_err(|e| format!("failed to stat {label} '{}': {e}", requested_path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{label} is not a file"));
+    }
+    if metadata.len() > DEFAULT_MAX_FILE_BYTES {
+        return Err(format!(
+            "{label} is too large: {} bytes exceeds max {}",
+            metadata.len(),
+            DEFAULT_MAX_FILE_BYTES
+        ));
+    }
+    std::fs::read(requested_path)
+        .map_err(|e| format!("failed to read {label} '{}': {e}", requested_path.display()))
+}
+
+fn validate_local_input_path(path: &Path) -> Result<(), String> {
+    if path.is_absolute() {
+        return Err("absolute paths are blocked for runtime file inputs".to_string());
+    }
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("path traversal is blocked for runtime file inputs".to_string());
+    }
+    reject_sensitive_path(path)
+}
+
+fn reject_sensitive_path(path: &Path) -> Result<(), String> {
+    for component in path.components() {
+        if let Component::Normal(part) = component {
+            let name = part.to_string_lossy().to_ascii_lowercase();
+            if is_sensitive_name(&name) {
+                return Err("sensitive path is blocked".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_sensitive_name(name: &str) -> bool {
+    name == ".env"
+        || name.starts_with(".env.")
+        || name == ".envrc"
+        || name == ".netrc"
+        || name == ".git-credentials"
+        || name == "id_rsa"
+        || name == "id_ed25519"
+        || name.ends_with(".pem")
+        || name.ends_with(".key")
+        || name.contains("token")
+        || name.contains("secret")
 }
 
 fn detect_illegible_cot(text: &str) -> serde_json::Value {

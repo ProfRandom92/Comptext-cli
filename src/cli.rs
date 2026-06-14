@@ -1735,6 +1735,14 @@ COMMANDS:\n\
     verify              Verify or generate local provenance manifest\n\
     state               Manage and verify agent state contracts\n\
     antigravity         Manage and package Antigravity plugin bundles\n\
+    parse               Parse a symbolic runtime command\n\
+    encode              Encode a symbolic runtime command\n\
+    batch               Parse a local symbolic batch expression\n\
+    dsl validate        Validate a local .ctxt DSL file\n\
+    evidence hash       Hash a bounded local evidence file\n\
+    mcp serve           Serve local stdio MCP file reads under --allowed-root\n\
+    detect-illegible-cot\n\
+                        Run deterministic trace phrase triage\n\
 \n\
 SAFETY DEFAULTS:\n\
     network_default=deny\n\
