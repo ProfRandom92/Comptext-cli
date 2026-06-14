@@ -1,4 +1,6 @@
+use std::io::Write;
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -87,6 +89,24 @@ fn run_fail(args: &[&str]) -> serde_json::Value {
     serde_json::from_str(&stderr).expect("error JSON should parse")
 }
 
+fn run_with_stdin(args: &[&str], stdin: &str) -> String {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("ctxt binary should spawn");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should be piped")
+        .write_all(stdin.as_bytes())
+        .expect("stdin write should succeed");
+    let output = child.wait_with_output().expect("ctxt should exit");
+    assert!(output.status.success(), "command failed: {args:?}");
+    String::from_utf8(output.stdout).expect("stdout should be UTF-8")
+}
+
 fn valid_phase_4f_proposal(id: &str) -> serde_json::Value {
     serde_json::json!({
         "schema_version": "proposal.v1",
@@ -153,6 +173,162 @@ fn valid_phase_5b_review(id: &str, role_id: &str) -> serde_json::Value {
         },
         "status": "draft"
     })
+}
+
+#[test]
+fn ctxt_parse_json_roundtrips_symbolic_command() {
+    let _guard = test_lock();
+    let stdout = run(&["parse", "C;P:FIB", "--json"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON should parse");
+    assert_eq!(value["command"], "CODE");
+    assert_eq!(value["command_code"], "C");
+    assert_eq!(value["language"], "PYTHON");
+    assert_eq!(value["task"], "FIB");
+}
+
+#[test]
+fn ctxt_encode_emits_expected_symbolic_command() {
+    let _guard = test_lock();
+    let stdout = run(&[
+        "encode",
+        "--command",
+        "CODE",
+        "--language",
+        "PYTHON",
+        "--task",
+        "FIB",
+    ]);
+    assert_eq!(stdout.trim(), "C;P:FIB");
+}
+
+#[test]
+fn ctxt_batch_parses_items() {
+    let _guard = test_lock();
+    let stdout = run(&["batch", "B:[D:SUM]|[C;P:FIB]", "--json"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("batch JSON should parse");
+    assert_eq!(value["mode"], "SEQ");
+    assert_eq!(value["items"].as_array().unwrap().len(), 2);
+    assert_eq!(value["items"][0]["command"], "DATA");
+    assert_eq!(value["items"][1]["language"], "PYTHON");
+}
+
+#[test]
+fn ctxt_rejects_invalid_command_language_and_modifier() {
+    let _guard = test_lock();
+    let invalid_command = run_fail(&["parse", "Z:FIB", "--json"]);
+    assert!(invalid_command["error"]
+        .as_str()
+        .unwrap()
+        .contains("invalid command"));
+
+    let invalid_language = run_fail(&[
+        "encode",
+        "--command",
+        "CODE",
+        "--language",
+        "KLINGON",
+        "--task",
+        "FIB",
+        "--json",
+    ]);
+    assert!(invalid_language["error"]
+        .as_str()
+        .unwrap()
+        .contains("invalid language"));
+
+    let invalid_modifier = run_fail(&["parse", "C;P:FIB;MOD:UNSAFE", "--json"]);
+    assert!(invalid_modifier["error"]
+        .as_str()
+        .unwrap()
+        .contains("invalid modifier"));
+}
+
+#[test]
+fn ctxt_dsl_validate_accepts_basic_fixture() {
+    let _guard = test_lock();
+    let stdout = run(&["dsl", "validate", "examples/basic.ctxt", "--json"]);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("DSL validate JSON should parse");
+    assert_eq!(value["valid"], true);
+    assert_eq!(value["counts"]["skills"], 1);
+    assert_eq!(value["counts"]["resources"], 1);
+    assert_eq!(value["counts"]["tools"], 1);
+    assert_eq!(value["counts"]["tasks"], 1);
+}
+
+#[test]
+fn ctxt_evidence_hash_is_stable_sha256() {
+    let _guard = test_lock();
+    let stdout = run(&["evidence", "hash", "examples/trace.txt", "--json"]);
+    let first: serde_json::Value =
+        serde_json::from_str(&stdout).expect("evidence hash JSON should parse");
+    let stdout_again = run(&["evidence", "hash", "examples/trace.txt", "--json"]);
+    let second: serde_json::Value =
+        serde_json::from_str(&stdout_again).expect("evidence hash JSON should parse");
+    assert_eq!(first["sha256"], second["sha256"]);
+    assert_eq!(first["algorithm"], "sha256");
+}
+
+#[test]
+fn ctxt_mcp_allows_rooted_file_read() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"path": "README.md", "max_bytes": 4096}
+        }
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP response should parse");
+    assert_eq!(value["id"], 1);
+    assert_eq!(value["result"]["structuredContent"]["path"], "README.md");
+    assert!(
+        value["result"]["structuredContent"]["sha256"]
+            .as_str()
+            .unwrap()
+            .len()
+            == 64
+    );
+}
+
+#[test]
+fn ctxt_mcp_blocks_traversal() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "ctxt.read_file",
+            "arguments": {"path": "../legacy-codex/README.md"}
+        }
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP response should parse");
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("traversal"));
+}
+
+#[test]
+fn ctxt_detect_illegible_cot_flags_trace_fixture() {
+    let _guard = test_lock();
+    let stdout = run(&["detect-illegible-cot", "examples/trace.txt", "--json"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("detect JSON should parse");
+    assert_eq!(value["detected"], true);
+    assert_eq!(value["findings"].as_array().unwrap().len(), 1);
 }
 
 #[test]

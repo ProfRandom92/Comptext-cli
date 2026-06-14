@@ -269,6 +269,10 @@ where
         }
     }
 
+    if let Some(code) = crate::runtime::try_run(&cleaned_argv, json_output) {
+        return code;
+    }
+
     let config = match load_config(config_path.as_deref()) {
         Ok(cfg) => cfg,
         Err(e) => {

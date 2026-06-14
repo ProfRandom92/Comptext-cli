@@ -1,0 +1,13 @@
+$ctxt-runtime
+@workspace/README.md
+
+tool read_context {
+  name: "read_context"
+  description: "Read context from an allowed root."
+}
+
+task validate_basic {
+  name: "validate_basic"
+  description: "Validate the basic CompText DSL fixture."
+  handler: validate_basic
+}
