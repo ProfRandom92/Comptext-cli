@@ -78,6 +78,8 @@ cargo run --bin ctxt -- --json startup flow
 cargo run --bin ctxt -- --json review workflow
 ```
 
+For a small terminal demo plan, see [docs/DEMO.md](docs/DEMO.md).
+
 ### Planned Release Workflow
 
 The crate install path is planned for the tagged release. Until the crate is published, use the source workflow above.
