@@ -158,40 +158,82 @@ The commands above are local CLI invocations. They do not enable provider calls,
 
 ## Architecture
 
+Three callers share one local runtime boundary. The output is contract data and evidence for a safe review context.
+
+<details>
+<summary>Architecture diagram</summary>
+
 ```mermaid
 flowchart LR
-    human["Human reviewer"] --> cli["ctxt CLI"]
-    codex["Codex"] --> cli
-    antigravity["Antigravity"] --> cli
-    cli --> contracts["Agent-readable JSON contracts"]
-    contracts --> startup["Startup and capability state"]
-    contracts --> evidence["Local artifacts and bounded reads"]
-    contracts --> validation["Validation output"]
-    startup --> summary["User summary"]
-    evidence --> summary
-    validation --> summary
+    users["Human / Codex / Antigravity"] --> cli["ctxt CLI"]
+    cli --> contracts["JSON Contracts"]
+    contracts --> evidence["Local Evidence"]
+    contracts --> validation["Validation Gate"]
+    evidence --> context["Safe Review Context"]
+    validation --> context
+
+    classDef core fill:#eef2ff,stroke:#4f46e5,color:#111827
+    classDef evidence fill:#ecfdf5,stroke:#059669,color:#111827
+    classDef safe fill:#f8fafc,stroke:#64748b,color:#111827
+    class users,cli,contracts core
+    class evidence evidence
+    class validation,context safe
 ```
+
+</details>
 
 `ctxt` keeps the first interaction local and deterministic. Callers ask the runtime what is supported, what is disabled, what evidence exists, and what validation says.
 
 ## Review Workflow
 
+The review path stays short: inspect readiness, confirm capabilities and contracts, run the review checklist, then validate before the user decides.
+
+<details>
+<summary>Review workflow diagram</summary>
+
 ```mermaid
 flowchart TD
-    readiness["startup readiness"] --> flow["startup flow"]
-    flow --> schema["schema"]
-    schema --> capabilities["capabilities"]
-    capabilities --> subagents["subagent role contracts"]
-    subagents --> proposals["proposal artifacts"]
-    proposals --> reviews["review artifacts"]
-    reviews --> workflow["review workflow"]
+    readiness["startup readiness"] --> capabilities["capabilities"]
+    capabilities --> contracts["schema / contracts"]
+    contracts --> workflow["review workflow"]
     workflow --> validate["validate --run"]
-    validate --> summary["user summary"]
+    validate --> decision["user decision"]
+
+    classDef core fill:#eef2ff,stroke:#4f46e5,color:#111827
+    classDef safe fill:#f8fafc,stroke:#64748b,color:#111827
+    classDef evidence fill:#ecfdf5,stroke:#059669,color:#111827
+    class readiness,capabilities,contracts core
+    class workflow,validate evidence
+    class decision safe
 ```
+
+</details>
 
 The review workflow is a checklist contract. It does not run hidden automation, invoke external agents, call providers, apply artifacts, or change Git state.
 
 ## Safety Matrix
+
+The safety boundary separates local contract work from disabled execution gates.
+
+<details>
+<summary>Safety boundary diagram</summary>
+
+```mermaid
+flowchart LR
+    allowed["Allowed"] --> contracts["Local JSON Contracts"]
+    allowed --> reads["Bounded Artifact Reads"]
+    allowed --> validation["Validation"]
+    allowed --> approval["User Approval"]
+    disabled["Disabled"] --> gates["Network / Providers / Agents / Auto Apply / MCP"]
+
+    classDef safe fill:#ecfdf5,stroke:#059669,color:#111827
+    classDef blocked fill:#fef2f2,stroke:#dc2626,color:#111827
+    classDef evidence fill:#f8fafc,stroke:#64748b,color:#111827
+    class allowed,contracts,reads,validation,approval safe
+    class disabled,gates blocked
+```
+
+</details>
 
 | Boundary | Default | README R2 wording |
 |---|---|---|
