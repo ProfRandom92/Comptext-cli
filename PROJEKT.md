@@ -36,7 +36,7 @@ cargo check: green
 cargo test: green
 cargo clippy -- -D warnings: green
 cargo run --bin ctxt -- --json validate --run: green
-unit tests: 37 green
+unit tests: 38 green
 smoke tests: 83 green
 ```
 

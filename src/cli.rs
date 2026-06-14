@@ -2142,6 +2142,22 @@ fn is_sensitive_context_path(path: &str) -> bool {
         )
 }
 
+fn is_context_pack_excluded_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    let excluded_extensions = [
+        ".exe", ".dll", ".pdb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip",
+        ".gz", ".tar", ".tgz", ".7z", ".rar", ".bin", ".wasm", ".so", ".dylib", ".class", ".jar",
+        ".mp4", ".mov", ".avi", ".mp3", ".wav", ".flac", ".woff", ".woff2", ".ttf", ".otf",
+    ];
+
+    lower == "cargo.lock"
+        || is_sensitive_context_path(&normalized)
+        || excluded_extensions
+            .iter()
+            .any(|extension| lower.ends_with(extension))
+}
+
 fn ensure_provider_network_allowed(
     config: &Config,
     profile: &ProviderProfile,
@@ -2198,12 +2214,7 @@ fn build_context_pack(task: &str) -> Result<ContextPack, String> {
 
     for file in files {
         let rel_path = normalize_path(&file);
-        if rel_path.ends_with(".exe")
-            || rel_path.ends_with(".dll")
-            || rel_path.ends_with(".pdb")
-            || rel_path == "Cargo.lock"
-            || is_sensitive_context_path(&rel_path)
-        {
+        if is_context_pack_excluded_path(&rel_path) {
             continue;
         }
         let content = std::fs::read_to_string(&file)
@@ -2235,6 +2246,39 @@ fn build_context_pack(task: &str) -> Result<ContextPack, String> {
             "*.pfx".to_string(),
             "*key*".to_string(),
             "*credential*".to_string(),
+            "*.exe".to_string(),
+            "*.dll".to_string(),
+            "*.pdb".to_string(),
+            "*.png".to_string(),
+            "*.jpg".to_string(),
+            "*.jpeg".to_string(),
+            "*.gif".to_string(),
+            "*.webp".to_string(),
+            "*.ico".to_string(),
+            "*.pdf".to_string(),
+            "*.zip".to_string(),
+            "*.gz".to_string(),
+            "*.tar".to_string(),
+            "*.tgz".to_string(),
+            "*.7z".to_string(),
+            "*.rar".to_string(),
+            "*.bin".to_string(),
+            "*.wasm".to_string(),
+            "*.so".to_string(),
+            "*.dylib".to_string(),
+            "*.class".to_string(),
+            "*.jar".to_string(),
+            "*.mp4".to_string(),
+            "*.mov".to_string(),
+            "*.avi".to_string(),
+            "*.mp3".to_string(),
+            "*.wav".to_string(),
+            "*.flac".to_string(),
+            "*.woff".to_string(),
+            "*.woff2".to_string(),
+            "*.ttf".to_string(),
+            "*.otf".to_string(),
+            "Cargo.lock".to_string(),
         ],
         allowed_write_paths: vec![],
         forbidden_actions: vec![],
@@ -5784,8 +5828,8 @@ fn handle_antigravity(subcommand: &str, action: Option<&str>) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_benchmark, handle_validate, parse, BenchmarkArtifact, Command, Config, Defaults,
-        PolicyConfig, ProviderProfile,
+        build_context_pack, handle_benchmark, handle_validate, parse, BenchmarkArtifact, Command,
+        Config, Defaults, PolicyConfig, ProviderProfile,
     };
     use std::collections::HashMap;
 
@@ -6249,6 +6293,27 @@ mod tests {
     fn test_validate_command() {
         let res = handle_validate(false, false);
         assert_eq!(res, Ok(0));
+    }
+
+    #[test]
+    fn test_context_pack_skips_binary_readme_assets() {
+        let _guard = UNIT_TEST_LOCK.lock().unwrap();
+        let asset_dir = std::path::Path::new("assets/brand");
+        let asset_path = asset_dir.join("__ctxt_test_binary_asset.png");
+        let normalized_asset_path = "assets/brand/__ctxt_test_binary_asset.png";
+
+        let _ = std::fs::remove_file(&asset_path);
+        std::fs::create_dir_all(asset_dir).unwrap();
+        std::fs::write(&asset_path, [0xff, 0xd8, 0xff, 0x00]).unwrap();
+
+        let result = build_context_pack("binary asset skip");
+        let _ = std::fs::remove_file(&asset_path);
+
+        assert!(result.is_ok());
+        let context_pack = result.unwrap();
+        assert!(!context_pack
+            .included_files
+            .contains(&normalized_asset_path.to_string()));
     }
 
     #[test]
