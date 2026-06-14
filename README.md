@@ -1,271 +1,273 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="CompText — The Operating System for Context" width="100%">
+  <img src="assets/brand/comptext-cli-readme-header.jpg" alt="CompText CLI — CLI Runtime for Deterministic Context" width="100%">
 </p>
+<div align="center">
 
-# CompText
+# CompText `ctxt`
 
-<p align="center">
-  <img src="assets/mark.svg" alt="CompText mark" width="96" height="96">
-</p>
+**Deterministic contract runtime for agent-friendly local review workflows.**
 
-<p align="center">
-  <strong>The Operating System for Context</strong><br>
-  <span>Deterministic context infrastructure for AI systems.</span>
-</p>
+**Models are providers. Context is the product.**
 
-<p align="center">
-  <strong>Models are providers. Context is the product.</strong><br>
-  <span>Deterministic. Portable. Verifiable.</span>
-</p>
+It does not execute external agents, use network, call providers, apply proposals or reviews, or run subagents.
 
-<p align="center">
-  <a href="#quickstart">Quickstart</a> ·
-  <a href="#why-comptext">Why CompText?</a> ·
-  <a href="#artifacts">Artifacts</a> ·
-  <a href="#contributing">Contributing</a> ·
-  <a href="assets/README.md">Brand Assets</a> ·
-  <a href="docs/SKILL_BUNDLE_REGISTRY.md">Skill Registry</a>
-</p>
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Rust: stable](https://img.shields.io/badge/rust-stable-orange)
+![CLI: ctxt](https://img.shields.io/badge/cli-ctxt-blue)
+![JSON contracts: stable](https://img.shields.io/badge/json%20contracts-stable-brightgreen)
+![Network: deny by default](https://img.shields.io/badge/network-deny%20by%20default-red)
+![External agents: disabled](https://img.shields.io/badge/external%20agents-disabled-lightgrey)
+![Apply: disabled](https://img.shields.io/badge/apply-disabled-lightgrey)
+![Subagent runtime: disabled](https://img.shields.io/badge/subagent%20runtime-disabled-lightgrey)
+![MCP server: not implemented](https://img.shields.io/badge/MCP%20server-not%20implemented-lightgrey)
+![Windows: validated](https://img.shields.io/badge/windows-validated-blue)
+![v0.1.0: release candidate](https://img.shields.io/badge/v0.1.0-release%20candidate-purple)
+![Contracts: deterministic](https://img.shields.io/badge/contracts-deterministic-brightgreen)
 
-CompText CLI (`ctxt`) is an experimental, local-first terminal tool for turning messy repository state into deterministic, reviewable Context Packs before talking to model providers.
+</div>
 
-It helps you keep AI-assisted development grounded in artifacts: context packs, request files, proposal JSON, validation output, benchmark records, and phase reports.
+CompText `ctxt` v0.1.0 is a local-first Rust CLI for deterministic, schema-oriented review workflow contracts. It gives Codex, Antigravity, and human reviewers stable JSON entrypoints for startup checks, capability discovery, proposal evidence, review evidence, subagent role contracts, and validation summaries before any higher-risk action is considered.
 
-CompText is **not** a blind autonomous coding agent. It is a proposal-gated workflow for safer, more inspectable engineering.
+The current release candidate is focused on contract clarity, local evidence, and safe startup behavior. It is not an autonomous coding system, not a provider gateway, and not a remote orchestration layer.
 
----
+## Table of Contents
 
-## Why CompText?
+- [Why CompText](#why-comptext)
+- [Architecture](#architecture)
+- [Deterministic Review Workflow](#deterministic-review-workflow)
+- [Safety Boundary](#safety-boundary)
+- [Quickstart](#quickstart)
+- [Command Matrix](#command-matrix)
+- [Capability Matrix](#capability-matrix)
+- [Safety Matrix](#safety-matrix)
+- [Validation Evidence](#validation-evidence)
+- [Visual Asset Plan](#visual-asset-plan)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
-Most AI coding workflows start by sending a lot of vague context to a model and then trusting the conversation.
+## Why CompText
 
-CompText takes a different path:
+Most agent workflows start with ambiguous state and only later discover whether the environment was safe, validated, or consistent. CompText flips that order:
 
-1. inspect the repository,
-2. build a deterministic Context Pack,
-3. pass through explicit policy gates,
-4. treat provider output as untrusted,
-5. write proposals instead of mutating files immediately,
-6. apply only reviewed changes,
-7. validate locally,
-8. preserve evidence as artifacts.
+1. expose local runtime contracts first,
+2. report capabilities before actions,
+3. keep artifacts bounded and inspectable,
+4. make disabled gates explicit,
+5. validate locally before claims,
+6. summarize evidence for the user.
 
-```mermaid
-flowchart TD
-    A[Repository] --> B[Context Pack]
-    B --> C[Policy Gate]
-    C --> D[Provider Boundary]
-    D --> E[Untrusted Response]
-    E --> F[Proposal Artifact]
-    F --> G{Review}
-    G -->|approve| H[Apply Gate]
-    G -->|reject| I[Stop]
-    H --> J[Local Validation]
-    J --> K[Report / Benchmark / Evidence]
-```
+The result is a small CLI surface that helps an agent or reviewer answer: what is available, what is disabled, what evidence exists, and what local validation says.
 
-The goal is simple:
-
-> Less noisy context. More verifiable proof.
-
----
-
-## Who is this for?
-
-CompText is for developers who want AI-assisted workflows with stronger boundaries:
-
-- Rust / CLI developers experimenting with local-first agent tooling
-- prompt engineers building repeatable context workflows
-- AI agent developers who care about policy gates and evidence artifacts
-- teams exploring provider-agnostic coding workflows
-- reviewers who want to see what changed, why, and how it was validated
-
----
-
-## Current Status
-
-```text
-Binary: ctxt
-Current phase: Phase 17
-Current task: Antigravity Plugin Bundle Skeleton
-Last green phase: Phase 16
-Status: REVIEW-GATE
-Next allowed action: Await review gate confirmation
-```
-
-Completed so far:
-
-```text
-Phase 0   Repo Genesis & Bootstrap              COMPLETE
-Phase 1   CLI Shell Hardening                    COMPLETE
-Phase 2   Context Pack Contract                  COMPLETE
-Phase 3   Provider Adapter Layer / Dummy         COMPLETE
-Phase 4   Ollama Local Adapter                   COMPLETE
-Phase 4B  Skill Registry Normalization           COMPLETE
-Phase 4C  Long-Run Autonomy Hardening            COMPLETE
-Phase 5   Proposal Mode                          COMPLETE
-Phase 6   Apply Gate                             COMPLETE
-Phase 7   Provider Config Layer                  COMPLETE
-Phase 8   OpenAI-Compatible Adapter              COMPLETE
-Phase 9   Validate and Benchmark                 COMPLETE
-Phase 10  MVP Stabilization & Release Readiness  COMPLETE
-Phase 11  Release Packaging                      COMPLETE
-Phase 12  Antigravity CLI Governance & Token Economy COMPLETE
-Phase 13  Skill Bundle Registry                  COMPLETE
-Phase 14  Hook/Permission Integration            COMPLETE
-Phase 15  Cryptographic Provenance Engine        COMPLETE
-Phase 16  Agent State Contract Skeleton          COMPLETE
-Phase 17  Antigravity Plugin Bundle Skeleton     COMPLETE
-```
-
-Next areas:
-
-```text
-Phase 18  TBD
-```
-
-### Review-Gate Operating Rules
-
-```text
-No NEXT without Review-Gate.
-No roadmap completion claim while any phase is blocked.
-No automatic phase progression.
-Review-Gate decides PASS / PASS WITH NOTES / BLOCKED.
-```
-
-Operating modes:
-
-```text
-AUDIT           read-only contradiction search
-CONSOLIDATE     align README / PROJEKT / reports / docs
-FIX             narrow code or documentation repair
-REVIEW-GATE     no edits, PASS or BLOCKED only
-PHASE WORK      bounded implementation after Review-Gate approval
-```
-
-Current Phase 16 boundaries:
-
-```text
-local agent-state capture/verify/report only
-agent-state JSON as bounded evidence artifact
-sensitive paths skipped or rejected before reads
-evidence entries sorted by id and file_path before write
-no unsupported assurance claims
-no automatic phase progression
-```
+## Architecture
 
 ```mermaid
 flowchart LR
-    P5[Proposal Mode] --> P6[Apply Gate]
-    P6 --> P7[Provider Config]
-    P7 --> P8[OpenAI-Compatible]
-    P8 --> P9[Validate + Benchmark]
-    P9 --> P10[Stabilization]
-    P10 --> P11[Release Package]
-    P11 --> P12[CLI Governance]
-    P12 --> P13[Skill Registry]
-    P13 --> P14[Hook Integration]
-    P14 --> P15[Provenance Engine]
-    P15 --> P16[Agent State Contract]
-    P16 --> P17[Antigravity Plugin Bundle]
+    user["User or Agent"] --> cli["ctxt CLI"]
+    cli --> contracts["JSON contracts"]
+    contracts --> artifacts["Local artifacts"]
+    contracts --> validation["Validation output"]
+    artifacts --> summary["User summary"]
+    validation --> summary
 ```
 
----
+`ctxt` is intentionally boring at the boundary: commands produce local JSON contracts and evidence-oriented output. That makes it easier for automation to inspect state without assuming permission to mutate files, call providers, or reach the network.
+
+## Deterministic Review Workflow
+
+```mermaid
+flowchart TD
+    readiness["startup readiness"] --> flow["startup flow"]
+    flow --> schema["schema"]
+    schema --> capabilities["capabilities"]
+    capabilities --> subagents["subagents"]
+    subagents --> proposals["proposals"]
+    proposals --> reviews["reviews"]
+    reviews --> workflow["review workflow"]
+    workflow --> validate["validate --run"]
+    validate --> summary["user summary"]
+```
+
+The review workflow is a contract-only checklist. Each command is run explicitly by the user or agent inside the allowed task scope. The workflow does not imply remote execution, hidden automation, or automatic application of recommendations.
+
+## Safety Boundary
+
+```mermaid
+flowchart LR
+    contracts["Allowed read-only contracts"] --> self["self report"]
+    contracts --> schema["schema"]
+    contracts --> capabilities["capabilities"]
+    contracts --> startup["startup readiness and flow"]
+    contracts --> evidence["proposal and review evidence"]
+    contracts --> validation["local validation"]
+
+    disabled["Disabled gates"] --> network["network"]
+    disabled --> providers["providers"]
+    disabled --> external["external agents"]
+    disabled --> apply["apply"]
+    disabled --> subexec["subagent execution"]
+    disabled --> mcp["MCP server"]
+    disabled --> hooks["hooks"]
+    disabled --> plugins["plugins"]
+    disabled --> shell["arbitrary shell"]
+```
+
+Disabled gates are explicit by design. Contract output and artifacts are evidence, not proof that an unsafe action is allowed.
 
 ## Quickstart
 
-### 1. Clone and build
+Clone the repository and run the local validation sequence from PowerShell:
 
-```bash
+```powershell
 git clone https://github.com/ProfRandom92/comptext-cli.git
 cd comptext-cli
-cargo check
-```
-
-### 2. Run basic checks
-
-```bash
 cargo fmt --all --check
+cargo check
 cargo test
 cargo clippy -- -D warnings
 ```
 
-### 3. Try the CLI
+Inspect the local runtime contracts:
 
-```bash
-cargo run --bin ctxt -- --help
-cargo run --bin ctxt -- doctor
-cargo run --bin ctxt -- --json doctor
-cargo run --bin ctxt -- --json init --dry-run
-cargo run --bin ctxt -- providers list
-cargo run --bin ctxt -- --json providers list
-cargo run --bin ctxt -- version
+```powershell
+cargo run --bin ctxt -- --json self report
+cargo run --bin ctxt -- --json startup readiness
+cargo run --bin ctxt -- --json startup flow
+cargo run --bin ctxt -- --json review workflow
+cargo run --bin ctxt -- --json validate --run
 ```
 
-### 4. Build context artifacts
+All commands are local CLI invocations. The documented review workflow does not enable network access, provider calls, external agent execution, proposal application, review application, or subagent execution.
 
-```bash
-cargo run --bin ctxt -- context inspect
-cargo run --bin ctxt -- context pack --task "Explain this repository"
+## Command Matrix
+
+| Command | Purpose | Output style | Safety posture |
+|---|---|---|---|
+| `cargo run --bin ctxt -- --json self report` | Local runtime baseline and safe entrypoints | JSON | Read-only contract |
+| `cargo run --bin ctxt -- --json schema` | Supported JSON command shapes | JSON | Static contract |
+| `cargo run --bin ctxt -- --json capabilities` | Supported features and disabled gates | JSON | Read-only contract |
+| `cargo run --bin ctxt -- --json startup readiness` | Startup readiness status | JSON | Contract-only report |
+| `cargo run --bin ctxt -- --json startup flow` | Safe startup sequence | JSON | Contract-only checklist |
+| `cargo run --bin ctxt -- --json review workflow` | Deterministic review workflow plan | JSON | Contract-only checklist |
+| `cargo run --bin ctxt -- --json subagents list` | Deterministic subagent role contracts | JSON | Lists roles only |
+| `cargo run --bin ctxt -- --json proposals list` | Local proposal artifact index | JSON | Read-only evidence |
+| `cargo run --bin ctxt -- --json proposals inspect latest --max-bytes 12000` | Bounded latest proposal read | JSON | Read-only evidence |
+| `cargo run --bin ctxt -- --json proposals validate latest` | Validate proposal artifact contract | JSON | Validation only |
+| `cargo run --bin ctxt -- --json reviews list` | Local review artifact index | JSON | Read-only evidence |
+| `cargo run --bin ctxt -- --json reviews inspect latest --max-bytes 12000` | Bounded latest review read | JSON | Read-only evidence |
+| `cargo run --bin ctxt -- --json reviews validate latest` | Validate review artifact contract | JSON | Validation only |
+| `cargo run --bin ctxt -- --json agent discover` | Local agent discovery metadata | JSON | Discovery only |
+| `cargo run --bin ctxt -- --json runs list` | Local run artifact index | JSON | Read-only evidence |
+| `cargo run --bin ctxt -- --json runs read latest --max-bytes 12000` | Bounded latest run read | JSON | Read-only evidence |
+| `cargo run --bin ctxt -- --json validate --run` | Local validation contract execution | JSON | Local validation |
+
+## Capability Matrix
+
+| Capability | v0.1.0 RC status | Notes |
+|---|---:|---|
+| Runtime self-reporting | Available | Local JSON contract |
+| Schema introspection | Available | Stable command-shape discovery |
+| Capabilities introspection | Available | Reports supported features and disabled gates |
+| Startup readiness | Available | Contract-only readiness report |
+| Startup flow | Available | Contract-only startup checklist |
+| Review workflow planning | Available | Deterministic workflow checklist |
+| Proposal artifact listing | Available | Local evidence inspection |
+| Proposal artifact inspection | Available | Bounded reads with max-byte limits |
+| Proposal artifact validation | Available | Contract validation only |
+| Review artifact listing | Available | Local evidence inspection |
+| Review artifact inspection | Available | Bounded reads with max-byte limits |
+| Review artifact validation | Available | Contract validation only |
+| Subagent role contracts | Available | Deterministic role definitions only |
+| Local agent discovery | Available | Discovery metadata only |
+| Run artifact inspection | Available | Local evidence inspection |
+| Local validation | Available | `validate --run` contract |
+| MCP server | Not implemented | Badge and matrix state this explicitly |
+| Provider execution | Disabled | No live provider call is part of this README workflow |
+| External agent execution | Disabled | Discovery and contracts do not execute agents |
+| Proposal or review application | Disabled | Application is outside this release-candidate README workflow |
+| Subagent runtime execution | Disabled | Role contracts are not execution |
+
+## Safety Matrix
+
+| Boundary | Default | Rationale |
+|---|---|---|
+| Network | Denied | Local evidence and deterministic contracts come first |
+| Provider calls | Denied | Providers are not needed for contract inspection |
+| External agents | Denied | Discovery is metadata, not execution |
+| Proposal apply | Denied | Proposal artifacts are untrusted evidence |
+| Review apply | Denied | Review artifacts are untrusted evidence |
+| Subagent execution | Denied | Listed subagents are role contracts only |
+| MCP server | Not implemented | No README claim should imply MCP availability |
+| Hooks and plugins | Disabled for this flow | Not required for v0.1.0 contract-runtime validation |
+| Arbitrary shell | Out of scope | Use declared validation commands only |
+| Secrets | Never read or printed | Secret material must not enter reports, logs, artifacts, or context packs |
+| Git writes | User-authorized only | Commit, push, tag, and release require explicit instruction |
+
+## Validation Evidence
+
+Current local release-candidate baseline from `PROJEKT.md`:
+
+```text
+cargo fmt --all --check: green
+cargo check: green
+cargo test: green
+cargo clippy -- -D warnings: green
+cargo run --bin ctxt -- --json validate --run: green
+unit tests: 37 green
+smoke tests: 83 green
 ```
 
-### 5. Run safe model workflows
+Recommended local validation before reporting success:
 
-```bash
-cargo run --bin ctxt -- ask --dry-run "What is the next safe step?"
-cargo run --bin ctxt -- ask --provider dummy "How should I test this repo?"
-cargo run --bin ctxt -- propose --provider dummy "Add context inspect"
+```powershell
+cargo fmt --all --check
+cargo check
+cargo test
+cargo clippy -- -D warnings
+cargo run --bin ctxt -- --json validate --run
 ```
 
-## JSON Contract
+## Visual Asset Plan
 
-Use `--json` when another tool or Codex thread needs stable machine-readable output:
+README diagrams stay as Mermaid so they remain version-controlled, reviewable, and rendered directly by GitHub.
 
-```bash
-cargo run --bin ctxt -- --json doctor
-cargo run --bin ctxt -- --json providers list
-cargo run --bin ctxt -- --json context inspect
-cargo run --bin ctxt -- --json context pack --task "Explain this repository"
-cargo run --bin ctxt -- --json ask --dry-run "What changed?"
-cargo run --bin ctxt -- --json propose --provider dummy "Draft a narrow change"
-cargo run --bin ctxt -- --json artifacts list
-cargo run --bin ctxt -- --json artifacts read .comptext/context_pack.latest.json --max-bytes 4096
-cargo run --bin ctxt -- --json validate
+Figma can be used later for a GitHub README header, social preview card, footer strip, architecture poster, and launch image. Generated asset references should not be added unless matching files already exist in the repository and the active task explicitly allows them.
+
+## Roadmap
+
+The active project source of truth is `PROJEKT.md`, and concrete work slices live in `tasks/*.md`.
+
+Near-term release-candidate priorities:
+
+- keep README and task state aligned with Phase 5e,
+- preserve deterministic JSON contract behavior,
+- keep local validation green,
+- improve community-facing examples without widening runtime permissions,
+- add visual assets only in a dedicated visual-assets task.
+
+## Contributing
+
+Contributions should preserve the core safety model:
+
+- deterministic contracts before provider interaction,
+- dry-run before network,
+- proposal before apply,
+- model, provider, and tool output treated as untrusted input,
+- local validation before success claims,
+- no secrets in stdout, stderr, reports, context packs, proposals, snapshots, logs, or generated artifacts.
+
+For README/community work, stay inside the declared task scope and validate with:
+
+```powershell
+git --no-pager diff -- README.md
+git --no-pager status --short --branch
 ```
 
-JSON success output is a command-specific object with `ok: true`, a `command` name, and stable fields such as artifact paths, provider names, file counts, policy status, or validation commands.
+## License
 
-JSON errors are written to stderr:
+MIT.
+<p align="center">
+  <img src="assets/brand/comptext-cli-readme-footer.jpg" alt="CompText CLI — Compress the noise. Preserve the proof." width="100%">
+</p>
 
-```json
-{"ok":false,"error":{"message":"unsupported command 'example'"}}
-```
 
-The JSON contract does not print credentials. Provider auth is reported as metadata such as environment variable names or source categories, not secret values.
-
-### Local Config Init
-
-`ctxt init` refuses implicit writes. Preview first:
-
-```bash
-cargo run --bin ctxt -- --json init --dry-run
-```
-
-Write only to an explicit repo-relative TOML path:
-
-```bash
-cargo run --bin ctxt -- --json init --out comptext.toml
-```
-
-Existing files are not overwritten.
-
-### Artifact Discovery
-
-Generated evidence stays local and can be discovered without broad filesystem reads:
-
-```bash
-cargo run --bin ctxt -- --json artifacts list
-cargo run --bin ctxt -- --json artifacts read proposals/proposal.latest.json --max-bytes 8192
-```
-
-Artifact reads are restricted to `.comptext/`, `proposals/`, and `reports/`, use bounded excerpts, and apply the same redaction helper used by context packing.

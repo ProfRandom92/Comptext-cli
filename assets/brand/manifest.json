@@ -1,0 +1,44 @@
+{
+  "assets": [
+    {
+      "file": "README_ASSET_SNIPPETS.md",
+      "bytes": 873,
+      "recommended_use": ""
+    },
+    {
+      "file": "comptext-cli-logo.png",
+      "bytes": 233298,
+      "recommended_use": "repo/logo/avatar/icon"
+    },
+    {
+      "file": "comptext-cli-readme-footer-1280.jpg",
+      "bytes": 49810,
+      "recommended_use": "lighter README footer fallback"
+    },
+    {
+      "file": "comptext-cli-readme-footer.jpg",
+      "bytes": 72482,
+      "recommended_use": "README closing/footer strip"
+    },
+    {
+      "file": "comptext-cli-readme-header-1280.jpg",
+      "bytes": 137526,
+      "recommended_use": "lighter README header fallback"
+    },
+    {
+      "file": "comptext-cli-readme-header.jpg",
+      "bytes": 213554,
+      "recommended_use": "README top hero image, width=100%"
+    },
+    {
+      "file": "comptext-cli-readme-visual-overview.jpg",
+      "bytes": 146828,
+      "recommended_use": "README feature/visual section"
+    },
+    {
+      "file": "comptext-cli-social-preview.jpg",
+      "bytes": 86220,
+      "recommended_use": "GitHub repository social preview, 1280x640, under 1MB target"
+    }
+  ]
+}

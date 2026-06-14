@@ -19,12 +19,34 @@ CompText CLI is an experimental terminal context client for building determinist
 
 ### Current State
 ```text
-CURRENT_PHASE: 17
-CURRENT_TASK: Antigravity Plugin Bundle Skeleton
-LAST_GREEN_PHASE: 17
-STATUS: complete
-NEXT_ALLOWED_ACTION: Phase 18 planning on feature branch
+REPOSITORY: ProfRandom92/comptext-cli
+LATEST_SYNCED_COMMIT: 3706133 Local snapshot: add phase 5e review workflow contract
+BRANCH: main synced with origin/main
+CURRENT_PHASE: 5e
+CURRENT_TASK: README R1 community upgrade and v0.1.0 release candidate preparation
+LAST_GREEN_PHASE: 5e
+STATUS: release-candidate-prep
+NEXT_ALLOWED_ACTION: Step 1 README community upgrade using tasks/README_R1_COMMUNITY.md
 ```
+
+### Current Validation Baseline
+```text
+cargo fmt --all --check: green
+cargo check: green
+cargo test: green
+cargo clippy -- -D warnings: green
+cargo run --bin ctxt -- --json validate --run: green
+unit tests: 37 green
+smoke tests: 83 green
+```
+
+### Current Local Working Model
+- `PROJEKT.md` is the project source of truth.
+- `AGENTS.md` defines repository agent safety rules.
+- `tasks/*.md` defines concrete work slices.
+- `.agents/skills/*` defines reusable working skills.
+- Codex/Antigravity may work only inside declared task scope.
+- Commit, push, tag, and release only when explicitly requested.
 
 ### Autonomy Contract
 - **Allowed Modifications**: May edit source code (`src/**`), tests (`tests/**`), docs (`docs/**`), skills (`.agent/skills/**`, `.agents/skills/**`), prompts (`prompts/**`), and configurations (`Cargo.toml`, `comptext.example.toml`).
@@ -85,26 +107,9 @@ If remote Git interaction is required without explicit remote authorization, sto
 
 | Phase | Description | Goal / Scope | Status |
 |---|---|---|---|
-| **Phase 0** | Repo Genesis & Bootstrap | Scaffold Rust project, basic commands (`help`, `doctor`, `providers list`, `version`), verify CI | **COMPLETE** |
-| **Phase 1** | CLI Shell Hardening | Hardening argument parsing, input handling, and errors for the base shell commands | **COMPLETE** |
-| **Phase 2** | Context Pack Contract | Implement `ctxt context inspect`, `ctxt context pack --task "..."`, and `ctxt ask --dry-run "..."` | **COMPLETE** |
-| **Phase 3** | Provider Adapter Layer | Define provider interface and Dummy offline test provider | **COMPLETE** |
-| **Phase 4** | Ollama Local Adapter | Support local Ollama integrations with explicit network boundaries | **COMPLETE** |
-| **Phase 4B** | Skill Registry Normalization | Normalize the local Antigravity skill structure and crystallize autonomy rules | **COMPLETE** |
-| **Phase 4C** | Long-Run Autonomy Hardening | Harden state machine progression rules and git safety boundaries | **COMPLETE** |
-| **Phase 5** | Proposal Mode | Implement `ctxt propose` to output changes as structured proposals | **COMPLETE** |
-| **Phase 6** | Apply Gate | Implement `ctxt apply` to confirm/apply changes and run verification | **COMPLETE** |
-| **Phase 7** | Provider Config Layer | Support dynamic provider profile switching and configurations | **COMPLETE** |
-| **Phase 8** | OpenAI-Compatible Adapter | Implement OpenAI adapter skeleton | **COMPLETE** |
-| **Phase 9** | Validate and Benchmark | Local validation, dry-runs, and deterministic benchmark flows | **COMPLETE** |
-| **Phase 10** | MVP Stabilization & Release Readiness | Audit documentation, verify command flows, safety hygiene checks | **COMPLETE** |
-| **Phase 11** | Release Packaging | Package CLI binary, finalize manifests, release artifact generation | **COMPLETE** |
-| **Phase 12** | Antigravity CLI Governance & Token Economy | Antigravity governance docs, token economy rules, skill/hook/permission target architecture | **COMPLETE** |
-| **Phase 13** | Skill Bundle Registry | Local skill bundle registry and starter skill templates | **COMPLETE** |
-| **Phase 14** | Hook/Permission Integration | Hook boundaries, dynamic run approvals | **COMPLETE** |
-| **Phase 15** | Cryptographic Provenance Engine | local SHA-256 provenance manifests | **COMPLETE** |
-| **Phase 16** | Agent State Contract | Add local agent-state capture/verify/report | **COMPLETE** |
-| **Phase 17** | Antigravity Plugin Bundle | Implement ctxt antigravity commands, local templates, and docs | **COMPLETE** |
+| **Phase 5e** | README R1 Community Upgrade & v0.1.0 Release Candidate Preparation | Upgrade README through `tasks/README_R1_COMMUNITY.md`, keep deterministic context and safety boundaries intact, and prepare release-candidate review state | **ACTIVE: release-candidate-prep** |
+
+Historical implementation phases are not the active planning source for this branch snapshot. The current executable work queue is task-scoped and must be read from `tasks/*.md`, with `tasks/README_R1_COMMUNITY.md` as the next allowed task.
 
 ---
 
@@ -118,6 +123,9 @@ COMMANDS_RUN: <list of commands executed>
 VALIDATION: <validation output summary>
 ARTIFACTS: <list of generated artifacts>
 GIT: <read-only status by default; local commit only if explicitly authorized; remote action only if separately explicitly authorized>
+NETWORK: <offline-only | local-only | allowed-external>
+SECRETS: <secrets status>
+POLICY_DECISIONS: <policy status>
 RISKS: <analysis of potential risks>
 NEXT: <next action or phase name>
 ```
