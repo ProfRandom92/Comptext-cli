@@ -31,6 +31,10 @@ impl McpError {
         Self::new(-32601, "method not found", "method_not_found", detail)
     }
 
+    fn invalid_request(detail: &str) -> Self {
+        Self::new(-32600, "invalid request", "invalid_request", detail)
+    }
+
     fn invalid_params(detail: &str) -> Self {
         Self::new(-32602, "invalid params", "invalid_params", detail)
     }
@@ -549,31 +553,42 @@ fn serve_mcp(allowed_root: &Path) -> Result<(), String> {
         }
         let response = match serde_json::from_str::<serde_json::Value>(&line) {
             Ok(request) => handle_mcp_request(allowed_root, &request),
-            Err(_) => mcp_error_response(json!(null), McpError::parse_error("malformed JSON")),
+            Err(_) => Some(mcp_error_response(
+                json!(null),
+                McpError::parse_error("malformed JSON"),
+            )),
         };
-        writeln!(stdout, "{}", response)
-            .map_err(|e| format!("failed to write MCP response: {e}"))?;
-        stdout
-            .flush()
-            .map_err(|e| format!("failed to flush MCP response: {e}"))?;
+        if let Some(response) = response {
+            writeln!(stdout, "{}", response)
+                .map_err(|e| format!("failed to write MCP response: {e}"))?;
+            stdout
+                .flush()
+                .map_err(|e| format!("failed to flush MCP response: {e}"))?;
+        }
     }
     Ok(())
 }
 
-fn handle_mcp_request(allowed_root: &Path, request: &serde_json::Value) -> serde_json::Value {
+fn handle_mcp_request(
+    allowed_root: &Path,
+    request: &serde_json::Value,
+) -> Option<serde_json::Value> {
     let id = request.get("id").cloned().unwrap_or(json!(null));
     if !request.is_object() {
-        return mcp_error_response(
+        return Some(mcp_error_response(
             id,
-            McpError::invalid_params("request must be a JSON object"),
-        );
+            McpError::invalid_request("request must be a JSON object"),
+        ));
     }
     let Some(method) = request.get("method").and_then(|method| method.as_str()) else {
-        return mcp_error_response(
+        return Some(mcp_error_response(
             id,
-            McpError::invalid_params("request method must be a string"),
-        );
+            McpError::invalid_request("request method must be a string"),
+        ));
     };
+    if request.get("id").is_none() {
+        return None;
+    }
     let result = match method {
         "initialize" => Ok(json!({
             "protocolVersion": "2025-06-18",
@@ -630,8 +645,8 @@ fn handle_mcp_request(allowed_root: &Path, request: &serde_json::Value) -> serde
     };
 
     match result {
-        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-        Err(error) => mcp_error_response(id, error),
+        Ok(result) => Some(json!({"jsonrpc": "2.0", "id": id, "result": result})),
+        Err(error) => Some(mcp_error_response(id, error)),
     }
 }
 

@@ -517,6 +517,56 @@ fn ctxt_mcp_returns_structured_parse_error_for_malformed_json() {
 }
 
 #[test]
+fn ctxt_mcp_returns_structured_invalid_request_for_missing_method() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP error response should parse");
+
+    assert_mcp_error(&value, serde_json::json!(8), -32600, "invalid_request");
+}
+
+#[test]
+fn ctxt_mcp_returns_structured_invalid_request_for_non_string_method() {
+    let _guard = test_lock();
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": 7
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(request.to_string() + "\n"),
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("MCP error response should parse");
+
+    assert_mcp_error(&value, serde_json::json!(9), -32600, "invalid_request");
+}
+
+#[test]
+fn ctxt_mcp_notification_with_no_id_produces_no_response() {
+    let _guard = test_lock();
+    let notification = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "tools/list"
+    });
+    let stdout = run_with_stdin(
+        &["mcp", "serve", "--allowed-root", "."],
+        &(notification.to_string() + "\n"),
+    );
+
+    assert_eq!(stdout, "");
+}
+
+#[test]
 fn ctxt_mcp_returns_structured_method_not_found() {
     let _guard = test_lock();
     let request = serde_json::json!({
