@@ -5,6 +5,30 @@ edition = "2021"
 description = "Experimental terminal context client for deterministic Context Packs."
 license = "MIT"
 repository = "https://github.com/ProfRandom92/comptext-cli"
+readme = "README.md"
+keywords = ["cli", "context", "agents", "json", "deterministic"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [
+    ".agent/**",
+    ".agents/**",
+    ".codex/**",
+    ".comptext/**",
+    ".github/**",
+    "Cargo.toml.orig",
+    "CREATE_REPO.md",
+    "MANIFEST.json",
+    "PROJEKT.md",
+    "context/**",
+    "mcp/**",
+    "prompts/**",
+    "reports/**",
+    "reviews/**",
+    "reviews.smoke-backup-*/**",
+    "scripts/**",
+    "tasks/**",
+    "templates/**",
+    "proposals/**",
+]
 
 [[bin]]
 name = "ctxt"

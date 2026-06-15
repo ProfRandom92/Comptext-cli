@@ -635,9 +635,7 @@ fn handle_mcp_request(
             McpError::invalid_request("request method must be a string"),
         ));
     };
-    if request.get("id").is_none() {
-        return None;
-    }
+    request.get("id")?;
     let result = match method {
         "initialize" => Ok(json!({
             "protocolVersion": "2025-06-18",
