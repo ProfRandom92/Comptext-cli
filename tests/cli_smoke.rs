@@ -263,6 +263,31 @@ fn ctxt_encode_emits_expected_symbolic_command() {
 }
 
 #[test]
+fn ctxt_encode_json_reports_stable_shape() {
+    let _guard = test_lock();
+    let stdout = run(&[
+        "encode",
+        "--command",
+        "CODE",
+        "--language",
+        "PYTHON",
+        "--task",
+        "FIB",
+        "--json",
+    ]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("encode JSON should parse");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["encoded"], "C;P:FIB");
+    assert_eq!(value["parsed"]["command"], "CODE");
+    assert_eq!(value["parsed"]["command_code"], "C");
+    assert_eq!(value["parsed"]["language"], "PYTHON");
+    assert_eq!(value["parsed"]["language_code"], "P");
+    assert_eq!(value["parsed"]["task"], "FIB");
+    assert_eq!(value["parsed"]["modifiers"].as_array().unwrap().len(), 0);
+    assert_eq!(value["parsed"]["raw"], "C;P:FIB");
+}
+
+#[test]
 fn ctxt_batch_parses_items() {
     let _guard = test_lock();
     let stdout = run(&["batch", "B:[D:SUM]|[C;P:FIB]", "--json"]);
