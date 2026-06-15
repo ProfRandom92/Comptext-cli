@@ -38,6 +38,7 @@ CompText `ctxt` v0.1.0 is a release candidate until the release is tagged.
 - [30-Second Explanation](#30-second-explanation)
 - [Install / Run](#install--run)
 - [Using With Codex / Antigravity](#using-with-codex--antigravity)
+- [Experimental Runtime Contract](#experimental-runtime-contract)
 - [Command Matrix](#command-matrix)
 - [Capability Matrix](#capability-matrix)
 - [Architecture](#architecture)
@@ -108,6 +109,10 @@ cargo run --bin ctxt -- --json validate --run
 ```
 
 The commands above are local CLI invocations. They do not enable provider calls, network access, external agent execution, proposal application, review application, or subagent runtime execution.
+
+## Experimental Runtime Contract
+
+For the local runtime experiment, see [docs/RUNTIME_CONTRACT.md](docs/RUNTIME_CONTRACT.md). It covers the command matrix, stdout/stderr behavior, JSON behavior, MCP-style stdio error contract, bounded reads, and evidence hash scope. This is experimental local runtime support, not a production MCP support or full MCP compliance claim.
 
 ## Command Matrix
 
