@@ -857,6 +857,20 @@ fn ctxt_detect_illegible_cot_flags_trace_fixture() {
 }
 
 #[test]
+fn ctxt_detect_illegible_cot_reports_clean_trace() {
+    let _guard = test_lock();
+    let stdout = run(&["detect-illegible-cot", "examples/trace-clean.txt", "--json"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("detect JSON should parse");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["detected"], false);
+    assert_eq!(value["findings"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        value["scope"],
+        "deterministic phrase heuristic for trace review triage"
+    );
+}
+
+#[test]
 fn help_mentions_safety_defaults() {
     let _guard = test_lock();
     let stdout = run(&["--help"]);
