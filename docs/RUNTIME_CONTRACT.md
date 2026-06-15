@@ -42,6 +42,28 @@ are returned as JSON-RPC error responses on stdout instead of CLI stderr. A
 malformed server invocation or server I/O failure still follows normal CLI error
 handling.
 
+## DSL Fixture Validation
+
+`ctxt dsl validate <path>` validates a small local fixture subset only. It does
+not claim full legacy DSL compatibility and does not execute skills, tools,
+tasks, providers, shell commands, OAuth flows, network resources, or MCP tool
+definitions.
+
+The current accepted subset is:
+
+| Syntax | Meaning |
+| --- | --- |
+| `use:<identifier>` | Counts a local use directive. |
+| `$skill-name` | Counts a skill-shaped reference without invoking it. |
+| `@workspace/path` | Counts a local resource-shaped reference without reading or resolving it. |
+| `C;P:FIB` style lines | Parses a symbolic command using the existing symbolic parser. |
+
+The validator rejects executable legacy semantics, including `tool { ... }`
+blocks, `task { ... }` blocks, OAuth/network resource URLs, provider
+declarations, and shell execution statements. With `--json`, the report includes
+`subset: "local-fixture-v1"`, stable counts for accepted syntax, accepted syntax
+labels, rejected semantic labels, and an ordered error list.
+
 ## MCP JSON-RPC Contract
 
 MCP request responses use JSON-RPC-style objects:

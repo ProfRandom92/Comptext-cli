@@ -350,10 +350,21 @@ fn ctxt_dsl_validate_accepts_basic_fixture() {
     let value: serde_json::Value =
         serde_json::from_str(&stdout).expect("DSL validate JSON should parse");
     assert_eq!(value["valid"], true);
+    assert_eq!(value["subset"], "local-fixture-v1");
+    assert_eq!(value["counts"]["use_directives"], 1);
     assert_eq!(value["counts"]["skills"], 1);
     assert_eq!(value["counts"]["resources"], 1);
-    assert_eq!(value["counts"]["tools"], 1);
-    assert_eq!(value["counts"]["tasks"], 1);
+    assert_eq!(value["counts"]["symbolic_commands"], 1);
+    assert!(value["accepted_syntax"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "use:<identifier>"));
+    assert!(value["rejected_semantics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "tool blocks"));
 }
 
 #[test]
@@ -363,7 +374,7 @@ fn ctxt_dsl_validate_rejects_invalid_fixture() {
     let _fixture_guard = FileGuard::new(fixture);
     std::fs::write(
         fixture,
-        "$bad skill\n@../secret\ntool missing_description { name: demo }\ntask broken {\n",
+        "$bad skill\n@../secret\nuse:bad value\nnot-a-symbolic command\n",
     )
     .unwrap();
 
@@ -386,6 +397,70 @@ fn ctxt_dsl_validate_rejects_invalid_fixture() {
         .unwrap()
         .iter()
         .any(|error| error.as_str().unwrap().contains("invalid resource")));
+    assert!(report["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("invalid use directive")));
+}
+
+#[test]
+fn ctxt_dsl_validate_rejects_executable_legacy_semantics() {
+    let _guard = test_lock();
+    let fixture = std::path::Path::new("examples/invalid-executable-semantics.ctxt");
+    let _fixture_guard = FileGuard::new(fixture);
+    std::fs::write(
+        fixture,
+        [
+            "tool read_context {",
+            "  name: \"read_context\"",
+            "  description: \"Read context from an allowed root.\"",
+            "}",
+            "task validate_basic {",
+            "  name: \"validate_basic\"",
+            "  handler: validate_basic",
+            "}",
+            "@https://example.com/resource",
+            "@resource://database/users",
+            "provider openai",
+            "shell echo hi",
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args([
+            "dsl",
+            "validate",
+            "examples/invalid-executable-semantics.ctxt",
+            "--json",
+        ])
+        .output()
+        .expect("ctxt binary should run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout).expect("DSL invalid report should parse");
+    assert_eq!(report["valid"], false);
+    assert_eq!(report["subset"], "local-fixture-v1");
+    let errors = report["errors"].as_array().unwrap();
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("unsupported executable legacy tool block")));
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("unsupported executable legacy task block")));
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("invalid resource reference")));
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("unsupported executable legacy statement")));
 }
 
 #[test]
