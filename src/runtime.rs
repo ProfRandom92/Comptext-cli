@@ -546,8 +546,8 @@ fn validate_dsl(text: &str) -> serde_json::Value {
 }
 
 fn valid_use_directive(line: &str) -> bool {
-    let name = line.trim_start_matches("use:");
-    valid_identifier_body(name)
+    line.strip_prefix("use:")
+        .map_or(false, valid_identifier_body)
 }
 
 fn valid_prefixed_identifier(line: &str, prefix: char) -> bool {
@@ -581,15 +581,19 @@ fn valid_resource_ref(line: &str) -> bool {
 }
 
 fn looks_like_block_legacy_semantic(line: &str) -> bool {
-    let lower = line.to_ascii_lowercase();
-    lower.starts_with("oauth")
-        || lower.starts_with("provider")
-        || lower.starts_with("shell ")
-        || lower.starts_with("exec ")
-        || lower.starts_with("run ")
-        || lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("resource://")
+    let starts_with_ignore_case = |prefix: &str| {
+        line.get(..prefix.len())
+            .map_or(false, |head| head.eq_ignore_ascii_case(prefix))
+    };
+
+    starts_with_ignore_case("oauth")
+        || starts_with_ignore_case("provider")
+        || starts_with_ignore_case("shell ")
+        || starts_with_ignore_case("exec ")
+        || starts_with_ignore_case("run ")
+        || starts_with_ignore_case("http://")
+        || starts_with_ignore_case("https://")
+        || starts_with_ignore_case("resource://")
 }
 
 fn serve_mcp(allowed_root: &Path) -> Result<(), String> {
@@ -1028,3 +1032,4 @@ mod tests {
         assert!(parse_symbolic("C;P:FIB;MOD:UNSAFE").is_err());
     }
 }
+
