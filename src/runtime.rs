@@ -546,8 +546,7 @@ fn validate_dsl(text: &str) -> serde_json::Value {
 }
 
 fn valid_use_directive(line: &str) -> bool {
-    line.strip_prefix("use:")
-        .map_or(false, valid_identifier_body)
+    line.strip_prefix("use:").is_some_and(valid_identifier_body)
 }
 
 fn valid_prefixed_identifier(line: &str, prefix: char) -> bool {
@@ -583,7 +582,7 @@ fn valid_resource_ref(line: &str) -> bool {
 fn looks_like_block_legacy_semantic(line: &str) -> bool {
     let starts_with_ignore_case = |prefix: &str| {
         line.get(..prefix.len())
-            .map_or(false, |head| head.eq_ignore_ascii_case(prefix))
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
     };
 
     starts_with_ignore_case("oauth")
@@ -1032,4 +1031,3 @@ mod tests {
         assert!(parse_symbolic("C;P:FIB;MOD:UNSAFE").is_err());
     }
 }
-
