@@ -263,6 +263,31 @@ fn ctxt_encode_emits_expected_symbolic_command() {
 }
 
 #[test]
+fn ctxt_encode_json_reports_stable_shape() {
+    let _guard = test_lock();
+    let stdout = run(&[
+        "encode",
+        "--command",
+        "CODE",
+        "--language",
+        "PYTHON",
+        "--task",
+        "FIB",
+        "--json",
+    ]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("encode JSON should parse");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["encoded"], "C;P:FIB");
+    assert_eq!(value["parsed"]["command"], "CODE");
+    assert_eq!(value["parsed"]["command_code"], "C");
+    assert_eq!(value["parsed"]["language"], "PYTHON");
+    assert_eq!(value["parsed"]["language_code"], "P");
+    assert_eq!(value["parsed"]["task"], "FIB");
+    assert_eq!(value["parsed"]["modifiers"].as_array().unwrap().len(), 0);
+    assert_eq!(value["parsed"]["raw"], "C;P:FIB");
+}
+
+#[test]
 fn ctxt_batch_parses_items() {
     let _guard = test_lock();
     let stdout = run(&["batch", "B:[D:SUM]|[C;P:FIB]", "--json"]);
@@ -350,10 +375,21 @@ fn ctxt_dsl_validate_accepts_basic_fixture() {
     let value: serde_json::Value =
         serde_json::from_str(&stdout).expect("DSL validate JSON should parse");
     assert_eq!(value["valid"], true);
+    assert_eq!(value["subset"], "local-fixture-v1");
+    assert_eq!(value["counts"]["use_directives"], 1);
     assert_eq!(value["counts"]["skills"], 1);
     assert_eq!(value["counts"]["resources"], 1);
-    assert_eq!(value["counts"]["tools"], 1);
-    assert_eq!(value["counts"]["tasks"], 1);
+    assert_eq!(value["counts"]["symbolic_commands"], 1);
+    assert!(value["accepted_syntax"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "use:<identifier>"));
+    assert!(value["rejected_semantics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry == "tool blocks"));
 }
 
 #[test]
@@ -363,7 +399,7 @@ fn ctxt_dsl_validate_rejects_invalid_fixture() {
     let _fixture_guard = FileGuard::new(fixture);
     std::fs::write(
         fixture,
-        "$bad skill\n@../secret\ntool missing_description { name: demo }\ntask broken {\n",
+        "$bad skill\n@../secret\nuse:bad value\nnot-a-symbolic command\n",
     )
     .unwrap();
 
@@ -386,6 +422,70 @@ fn ctxt_dsl_validate_rejects_invalid_fixture() {
         .unwrap()
         .iter()
         .any(|error| error.as_str().unwrap().contains("invalid resource")));
+    assert!(report["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error.as_str().unwrap().contains("invalid use directive")));
+}
+
+#[test]
+fn ctxt_dsl_validate_rejects_executable_legacy_semantics() {
+    let _guard = test_lock();
+    let fixture = std::path::Path::new("examples/invalid-executable-semantics.ctxt");
+    let _fixture_guard = FileGuard::new(fixture);
+    std::fs::write(
+        fixture,
+        [
+            "tool read_context {",
+            "  name: \"read_context\"",
+            "  description: \"Read context from an allowed root.\"",
+            "}",
+            "task validate_basic {",
+            "  name: \"validate_basic\"",
+            "  handler: validate_basic",
+            "}",
+            "@https://example.com/resource",
+            "@resource://database/users",
+            "provider openai",
+            "shell echo hi",
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+        .args([
+            "dsl",
+            "validate",
+            "examples/invalid-executable-semantics.ctxt",
+            "--json",
+        ])
+        .output()
+        .expect("ctxt binary should run");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout).expect("DSL invalid report should parse");
+    assert_eq!(report["valid"], false);
+    assert_eq!(report["subset"], "local-fixture-v1");
+    let errors = report["errors"].as_array().unwrap();
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("unsupported executable legacy tool block")));
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("unsupported executable legacy task block")));
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("invalid resource reference")));
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .unwrap()
+        .contains("unsupported executable legacy statement")));
 }
 
 #[test]
@@ -754,6 +854,20 @@ fn ctxt_detect_illegible_cot_flags_trace_fixture() {
     let value: serde_json::Value = serde_json::from_str(&stdout).expect("detect JSON should parse");
     assert_eq!(value["detected"], true);
     assert_eq!(value["findings"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn ctxt_detect_illegible_cot_reports_clean_trace() {
+    let _guard = test_lock();
+    let stdout = run(&["detect-illegible-cot", "examples/trace-clean.txt", "--json"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("detect JSON should parse");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["detected"], false);
+    assert_eq!(value["findings"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        value["scope"],
+        "deterministic phrase heuristic for trace review triage"
+    );
 }
 
 #[test]

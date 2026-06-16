@@ -20,7 +20,7 @@ It does not execute external agents, use network, call providers, apply proposal
 ![External agents: disabled](https://img.shields.io/badge/external%20agents-disabled-lightgrey)
 ![Apply: disabled](https://img.shields.io/badge/apply-disabled-lightgrey)
 ![Subagent runtime: disabled](https://img.shields.io/badge/subagent%20runtime-disabled-lightgrey)
-![MCP server: not implemented](https://img.shields.io/badge/MCP%20server-not%20implemented-lightgrey)
+![MCP-style stdio: local-only](https://img.shields.io/badge/MCP--style%20stdio-local--only-lightgrey)
 ![Windows: validated](https://img.shields.io/badge/windows-validated-blue)
 ![v0.1.0: release candidate](https://img.shields.io/badge/v0.1.0-release%20candidate-purple)
 ![Contracts: deterministic](https://img.shields.io/badge/contracts-deterministic-brightgreen)
@@ -29,7 +29,7 @@ It does not execute external agents, use network, call providers, apply proposal
 
 > **Safety boundary**
 >
-> `ctxt` is local-first. Network is denied by default. Provider calls are not part of the documented workflow. External agent execution is disabled. Proposal and review artifacts are evidence, not instructions to auto-apply. Subagent role contracts are available, but subagents do not execute. No MCP server implementation is claimed.
+> `ctxt` is local-first. Network is denied by default. Provider calls are not part of the documented workflow. External agent execution is disabled. Proposal and review artifacts are evidence, not instructions to auto-apply. Subagent role contracts are available, but subagents do not execute. The MCP-style stdio adapter is local-only and experimental; no production MCP support or full MCP compliance is claimed.
 
 CompText `ctxt` v0.1.0 is a release candidate until the release is tagged.
 
@@ -157,7 +157,7 @@ For the local runtime experiment, see [docs/RUNTIME_CONTRACT.md](docs/RUNTIME_CO
 | Run artifact inspection | Available | Local evidence inspection |
 | Local validation | Available | `validate --run` contract |
 | Binary/media context-pack exclusion | Available | README assets do not break context packing |
-| MCP server | Not implemented | No server availability claim |
+| MCP-style stdio adapter | Experimental local-only | No production MCP support or full MCP compliance claim |
 | Provider gateway | Not implemented | No live provider gateway claim |
 | External agent execution | Disabled | Contracts and discovery do not execute agents |
 | Proposal or review application | Disabled | Artifacts are not auto-applied |
@@ -231,7 +231,7 @@ flowchart LR
     allowed --> reads["Bounded Artifact Reads"]
     allowed --> validation["Validation"]
     allowed --> approval["User Approval"]
-    disabled["Disabled"] --> gates["Network / Providers / Agents / Auto Apply / MCP"]
+    disabled["Disabled"] --> gates["Network / Providers / Agents / Auto Apply / Production MCP"]
 
     classDef safe fill:#ecfdf5,stroke:#059669,color:#111827
     classDef blocked fill:#fef2f2,stroke:#dc2626,color:#111827
@@ -250,7 +250,7 @@ flowchart LR
 | Proposal apply | Disabled | Proposal artifacts are untrusted evidence |
 | Review apply | Disabled | Review artifacts are untrusted evidence |
 | Subagent runtime execution | Disabled | Subagent role contracts are available only as definitions |
-| MCP server | Not implemented | No MCP server implementation claim |
+| MCP-style stdio adapter | Local-only experiment | No production MCP support or full MCP compliance claim |
 | Provider gateway | Not implemented | No provider gateway claim |
 | Hooks and plugins | Disabled for this flow | Not required for release-candidate validation |
 | Arbitrary shell | Out of scope | Use declared local validation commands |

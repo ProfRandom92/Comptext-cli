@@ -445,10 +445,10 @@ fn validate_modifier(modifier: &str) -> Result<&str, String> {
 fn validate_dsl(text: &str) -> serde_json::Value {
     let mut errors = Vec::new();
     let mut counts = json!({
+        "use_directives": 0,
         "skills": 0,
         "resources": 0,
-        "tools": 0,
-        "tasks": 0
+        "symbolic_commands": 0
     });
 
     let lines: Vec<&str> = text.lines().collect();
@@ -456,6 +456,15 @@ fn validate_dsl(text: &str) -> serde_json::Value {
     while i < lines.len() {
         let line = lines[i].trim();
         if line.is_empty() || line.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if line.starts_with("use:") {
+            if valid_use_directive(line) {
+                counts["use_directives"] = json!(counts["use_directives"].as_u64().unwrap() + 1);
+            } else {
+                errors.push(format!("invalid use directive on line {}", i + 1));
+            }
             i += 1;
             continue;
         }
@@ -490,24 +499,22 @@ fn validate_dsl(text: &str) -> serde_json::Value {
                 block.push('\n');
                 block.push_str(lines[i]);
             }
-            if !block.contains('{') || !block.contains('}') {
-                errors.push(format!(
-                    "unterminated {kind} block starting on line {start_line}"
-                ));
-            } else if kind == "tool"
-                && (!block.contains("name:") || !block.contains("description:"))
-            {
-                errors.push(format!(
-                    "tool block on line {start_line} requires name and description"
-                ));
-            } else if kind == "task" && (!block.contains("name:") || !block.contains("handler:")) {
-                errors.push(format!(
-                    "task block on line {start_line} requires name and handler"
-                ));
-            } else {
-                let key = if kind == "tool" { "tools" } else { "tasks" };
-                counts[key] = json!(counts[key].as_u64().unwrap() + 1);
-            }
+            errors.push(format!(
+                "unsupported executable legacy {kind} block starting on line {start_line}"
+            ));
+            i += 1;
+            continue;
+        }
+        if looks_like_block_legacy_semantic(line) {
+            errors.push(format!(
+                "unsupported executable legacy statement on line {}",
+                i + 1
+            ));
+            i += 1;
+            continue;
+        }
+        if parse_symbolic(line).is_ok() {
+            counts["symbolic_commands"] = json!(counts["symbolic_commands"].as_u64().unwrap() + 1);
             i += 1;
             continue;
         }
@@ -518,13 +525,36 @@ fn validate_dsl(text: &str) -> serde_json::Value {
     json!({
         "ok": errors.is_empty(),
         "valid": errors.is_empty(),
+        "subset": "local-fixture-v1",
+        "accepted_syntax": [
+            "use:<identifier>",
+            "$skill-name",
+            "@workspace/path",
+            "symbolic command lines"
+        ],
+        "rejected_semantics": [
+            "tool blocks",
+            "task blocks",
+            "OAuth or network resources",
+            "shell execution",
+            "provider calls",
+            "automatic skill invocation"
+        ],
         "counts": counts,
         "errors": errors
     })
 }
 
+fn valid_use_directive(line: &str) -> bool {
+    line.strip_prefix("use:").is_some_and(valid_identifier_body)
+}
+
 fn valid_prefixed_identifier(line: &str, prefix: char) -> bool {
     let name = line.trim_start_matches(prefix);
+    valid_identifier_body(name)
+}
+
+fn valid_identifier_body(name: &str) -> bool {
     !name.is_empty()
         && name
             .chars()
@@ -533,14 +563,36 @@ fn valid_prefixed_identifier(line: &str, prefix: char) -> bool {
 
 fn valid_resource_ref(line: &str) -> bool {
     let value = line.trim_start_matches('@');
+    if value.contains("://") || value.contains(':') {
+        return false;
+    }
+    let path = Path::new(value);
     !value.is_empty()
         && !value.starts_with('/')
         && !value.starts_with('\\')
+        && !path.is_absolute()
         && !value.split('/').any(|part| part == "..")
         && !value.split('\\').any(|part| part == "..")
+        && reject_sensitive_path(path).is_ok()
         && value
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.'))
+}
+
+fn looks_like_block_legacy_semantic(line: &str) -> bool {
+    let starts_with_ignore_case = |prefix: &str| {
+        line.get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    };
+
+    starts_with_ignore_case("oauth")
+        || starts_with_ignore_case("provider")
+        || starts_with_ignore_case("shell ")
+        || starts_with_ignore_case("exec ")
+        || starts_with_ignore_case("run ")
+        || starts_with_ignore_case("http://")
+        || starts_with_ignore_case("https://")
+        || starts_with_ignore_case("resource://")
 }
 
 fn serve_mcp(allowed_root: &Path) -> Result<(), String> {
@@ -586,9 +638,7 @@ fn handle_mcp_request(
             McpError::invalid_request("request method must be a string"),
         ));
     };
-    if request.get("id").is_none() {
-        return None;
-    }
+    request.get("id")?;
     let result = match method {
         "initialize" => Ok(json!({
             "protocolVersion": "2025-06-18",
