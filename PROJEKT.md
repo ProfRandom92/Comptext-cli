@@ -111,6 +111,10 @@ If remote Git interaction is required without explicit remote authorization, sto
 
 Historical implementation phases are not the active planning source for this branch snapshot. The current executable work queue is task-scoped and must be read from `tasks/*.md`, with `tasks/README_R1_COMMUNITY.md` as the next allowed task.
 
+### Phase History Note
+
+Historical reports under `reports/` may document later implementation phases such as Phase 17 and Phase 18. Those reports remain evidence records for prior work, but they do not override the current active task state above. For this branch snapshot, `CURRENT_PHASE: 5e` means the active release-candidate preparation task, not a denial that historical Phase 17/18 reports exist.
+
 ---
 
 ## Standard Phase Return Format
