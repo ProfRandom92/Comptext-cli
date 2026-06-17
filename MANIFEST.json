@@ -1,9 +1,14 @@
 {
   "package": "comptext-cli-repo-ready",
+  "status": "legacy-bootstrap-reference",
+  "do_not_use_as_current_source_of_truth": true,
+  "current_source_of_truth": "PROJEKT.md",
+  "active_task_source": "tasks/*.md",
   "target_repository": "ProfRandom92/comptext-cli",
   "binary": "ctxt",
   "language": "Rust",
-  "purpose": "Push-ready fresh repo scaffold prepared for Antigravity CLI phase-scoped autonomous implementation.",
+  "purpose": "Historical push-ready fresh repo scaffold metadata prepared for Antigravity CLI phase-scoped autonomous implementation.",
+  "legacy_note": "This manifest documents repository genesis/bootstrap history. The repository already exists. Current runtime, phase, validation, and task state must be read from PROJEKT.md, AGENTS.md, and the active task file referenced by PROJEKT.md.",
   "includes": [
     "Rust Cargo scaffold",
     "AGENTS.md",
