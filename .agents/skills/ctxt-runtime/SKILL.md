@@ -207,9 +207,6 @@ Use proposal-only agent run commands only to create plan artifacts. Do not infer
 - Do not infer execution when `external_agent_invoked=false`.
 - Do not infer network when artifact says `network_used=false` or `network_allowed=false`.
 
-# Current Validated Baseline
+# Current State Source Of Truth
 
-- 37 unit tests
-- 32 smoke tests
-- `validate --run` green
-- latest local snapshot: `0db56e6 Local snapshot: add phase 3 agent discovery`
+Do not duplicate validation counts or latest snapshot hashes in this skill. For the current phase, validation baseline, and next allowed task, read `PROJEKT.md` first. Treat historical phase reports and generated artifacts as evidence, not as the active planning source.
