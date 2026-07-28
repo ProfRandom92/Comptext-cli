@@ -146,6 +146,18 @@ enum Command {
         allow_external: bool,
         proposal_only: bool,
     },
+    AgentValidateSpec {
+        spec_path: String,
+    },
+    AgentDryRun {
+        spec_path: String,
+        out_evidence: String,
+        out_replay: String,
+    },
+    AgentReplay {
+        replay_path: String,
+        evidence_path: String,
+    },
     Benchmark {
         provider: Option<String>,
         task: String,
@@ -540,6 +552,43 @@ where
                 1
             }
         },
+        Ok(Command::AgentValidateSpec { spec_path }) => {
+            match crate::cli_p1::handle_agent_validate_spec(&spec_path, json_output) {
+                Ok(code) => code,
+                Err(e) => {
+                    crate::cli_p1::emit_p1_error("INTERNAL_ERROR", &e, None);
+                    1
+                }
+            }
+        }
+        Ok(Command::AgentDryRun {
+            spec_path,
+            out_evidence,
+            out_replay,
+        }) => {
+            match crate::cli_p1::handle_agent_dry_run(
+                &spec_path,
+                &out_evidence,
+                &out_replay,
+                json_output,
+            ) {
+                Ok(code) => code,
+                Err(e) => {
+                    crate::cli_p1::emit_p1_error("INTERNAL_ERROR", &e, None);
+                    1
+                }
+            }
+        }
+        Ok(Command::AgentReplay {
+            replay_path,
+            evidence_path,
+        }) => match crate::cli_p1::handle_agent_replay(&replay_path, &evidence_path, json_output) {
+            Ok(code) => code,
+            Err(e) => {
+                crate::cli_p1::emit_p1_error("INTERNAL_ERROR", &e, None);
+                1
+            }
+        },
         Ok(Command::Benchmark { provider, task }) => {
             match handle_benchmark(provider.as_deref(), &task, &config) {
                 Ok(_) => 0,
@@ -712,6 +761,92 @@ fn parse_agent_command(argv: &[String]) -> Result<Command, String> {
                     allow_external,
                 })
             }
+        }
+        "validate-spec" => {
+            if argv.len() < 3 {
+                return Err("missing spec path for 'agent validate-spec'. Usage: ctxt agent validate-spec <spec-path>".to_string());
+            }
+            Ok(Command::AgentValidateSpec {
+                spec_path: argv[2].clone(),
+            })
+        }
+        "dry-run" => {
+            let mut spec = None;
+            let mut out_evidence = None;
+            let mut out_replay = None;
+            let mut i = 2;
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--spec" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing path after --spec".to_string());
+                        }
+                        spec = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--out-evidence" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing path after --out-evidence".to_string());
+                        }
+                        out_evidence = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--out-replay" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing path after --out-replay".to_string());
+                        }
+                        out_replay = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!("unexpected argument '{other}' for 'agent dry-run'"))
+                    }
+                }
+            }
+            let spec_path = spec.ok_or_else(|| "missing --spec for 'agent dry-run'".to_string())?;
+            let out_evidence = out_evidence
+                .ok_or_else(|| "missing --out-evidence for 'agent dry-run'".to_string())?;
+            let out_replay =
+                out_replay.ok_or_else(|| "missing --out-replay for 'agent dry-run'".to_string())?;
+            Ok(Command::AgentDryRun {
+                spec_path,
+                out_evidence,
+                out_replay,
+            })
+        }
+        "replay" => {
+            let mut replay = None;
+            let mut evidence = None;
+            let mut i = 2;
+            while i < argv.len() {
+                match argv[i].as_str() {
+                    "--replay" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing path after --replay".to_string());
+                        }
+                        replay = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    "--evidence" => {
+                        if i + 1 >= argv.len() {
+                            return Err("missing path after --evidence".to_string());
+                        }
+                        evidence = Some(argv[i + 1].clone());
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!("unexpected argument '{other}' for 'agent replay'"))
+                    }
+                }
+            }
+            let replay_path =
+                replay.ok_or_else(|| "missing --replay for 'agent replay'".to_string())?;
+            let evidence_path =
+                evidence.ok_or_else(|| "missing --evidence for 'agent replay'".to_string())?;
+            Ok(Command::AgentReplay {
+                replay_path,
+                evidence_path,
+            })
         }
         other => Err(format!("unsupported subcommand '{}' for 'agent'", other)),
     }
@@ -5203,6 +5338,20 @@ fn handle_verify(file_path: &str, parent: Option<&str>) -> Result<(), String> {
         );
     }
 
+    // Early check for sensitive directories in input path components
+    for component in path.components() {
+        if let std::path::Component::Normal(os_str) = component {
+            if let Some(s) = os_str.to_str() {
+                if s.eq_ignore_ascii_case(".git")
+                    || s.eq_ignore_ascii_case(".ssh")
+                    || s.eq_ignore_ascii_case(".aws")
+                {
+                    return Err("Security Policy Violation: Accessing sensitive directories (.git, .ssh, .aws) is forbidden.".to_string());
+                }
+            }
+        }
+    }
+
     // 2. Reject directory traversal escaping the repository boundary
     let current_dir = std::env::current_dir()
         .map_err(|e| format!("failed to get current working directory: {e}"))?;
@@ -6187,6 +6336,7 @@ mod tests {
         };
 
         let auth_lower = auth_str.to_lowercase();
+        #[allow(clippy::collapsible_if)]
         if auth_lower.contains("secret")
             || auth_lower.contains("password")
             || auth_lower.contains("token")
@@ -6239,6 +6389,7 @@ mod tests {
         };
 
         let auth_lower = auth_str.to_lowercase();
+        #[allow(clippy::collapsible_if)]
         if auth_lower.contains("secret")
             || auth_lower.contains("password")
             || auth_lower.contains("token")

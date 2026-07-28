@@ -1,4 +1,6 @@
 mod cli;
+mod cli_p1;
+mod contracts;
 mod provider;
 
 fn main() {

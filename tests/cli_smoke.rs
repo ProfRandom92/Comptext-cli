@@ -240,6 +240,31 @@ fn init_json_dry_run_reports_target_without_write() {
 }
 
 #[test]
+fn test_case_insensitive_security_paths_rejected() {
+    let _guard = test_lock();
+    for path in [
+        ".GIT/config",
+        ".Git/HEAD",
+        ".SSH/id_rsa",
+        ".Aws/credentials",
+        ".aws/config",
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
+            .args(["verify", path])
+            .output()
+            .expect("ctxt binary should run");
+        assert!(!output.status.success(), "Path {} should be rejected", path);
+        let err_text = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            err_text.contains("Security Policy Violation"),
+            "Path {} failed security check message: {}",
+            path,
+            err_text
+        );
+    }
+}
+
+#[test]
 fn init_json_writes_explicit_local_config_without_overwrite() {
     let _guard = test_lock();
     let target_path = std::path::Path::new("comptext.smoke.toml");
@@ -1308,7 +1333,7 @@ fn review_workflow_json_reports_static_contract() {
         assert_eq!(step["order"].as_u64().unwrap(), (index + 1) as u64);
         assert_eq!(step["id"], *expected_id);
         assert_eq!(step["command"], *expected_command);
-        assert!(step["purpose"].as_str().unwrap().len() > 0);
+        assert!(!step["purpose"].as_str().unwrap().is_empty());
         assert_eq!(step["required"], true);
         assert_eq!(step["executes"], false);
         assert_eq!(step["applies_changes"], false);
@@ -1499,7 +1524,7 @@ fn startup_flow_json_reports_static_sequence() {
         let item = &sequence[index];
         assert_eq!(item["order"].as_u64().unwrap(), (index + 1) as u64);
         assert_eq!(item["command"], *expected_command);
-        assert!(item["purpose"].as_str().unwrap().len() > 0);
+        assert!(!item["purpose"].as_str().unwrap().is_empty());
         assert_eq!(item["required"], true);
         assert_eq!(item["executes"], false);
     }
