@@ -1,6 +1,6 @@
 use crate::contracts::{
-    compute_content_hash, compute_event_hash, jcs_hash, AgentSpec,
-    CompletionContract, ErrorEnvelope, EvidenceEvent, HashItem, ReplayEventItem, ReplayManifest,
+    compute_content_hash, compute_event_hash, jcs_hash, AgentSpec, CompletionContract,
+    ErrorEnvelope, EvidenceEvent, HashItem, ReplayEventItem, ReplayManifest,
 };
 use serde_json::json;
 use std::fs::File;
