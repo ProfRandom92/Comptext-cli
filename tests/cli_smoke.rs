@@ -250,7 +250,7 @@ fn test_case_insensitive_security_paths_rejected() {
         ".aws/config",
     ] {
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_ctxt"))
-            .args(["--json", "validate", "--run-file", path])
+            .args(["verify", path])
             .output()
             .expect("ctxt binary should run");
         assert!(!output.status.success(), "Path {} should be rejected", path);
