@@ -1308,7 +1308,7 @@ fn review_workflow_json_reports_static_contract() {
         assert_eq!(step["order"].as_u64().unwrap(), (index + 1) as u64);
         assert_eq!(step["id"], *expected_id);
         assert_eq!(step["command"], *expected_command);
-        assert!(step["purpose"].as_str().unwrap().len() > 0);
+        assert!(!step["purpose"].as_str().unwrap().is_empty());
         assert_eq!(step["required"], true);
         assert_eq!(step["executes"], false);
         assert_eq!(step["applies_changes"], false);
@@ -1499,7 +1499,7 @@ fn startup_flow_json_reports_static_sequence() {
         let item = &sequence[index];
         assert_eq!(item["order"].as_u64().unwrap(), (index + 1) as u64);
         assert_eq!(item["command"], *expected_command);
-        assert!(item["purpose"].as_str().unwrap().len() > 0);
+        assert!(!item["purpose"].as_str().unwrap().is_empty());
         assert_eq!(item["required"], true);
         assert_eq!(item["executes"], false);
     }

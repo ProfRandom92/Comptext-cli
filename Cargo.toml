@@ -18,3 +18,4 @@ toml = "0.8"
 uuid = { version = "1.0", features = ["v4"] }
 regex = "1.10"
 sha2 = "0.10"
+serde_jcs = "0.2.0"
