@@ -5342,7 +5342,10 @@ fn handle_verify(file_path: &str, parent: Option<&str>) -> Result<(), String> {
     for component in path.components() {
         if let std::path::Component::Normal(os_str) = component {
             if let Some(s) = os_str.to_str() {
-                if s == ".git" || s == ".ssh" || s == ".aws" {
+                if s.eq_ignore_ascii_case(".git")
+                    || s.eq_ignore_ascii_case(".ssh")
+                    || s.eq_ignore_ascii_case(".aws")
+                {
                     return Err("Security Policy Violation: Accessing sensitive directories (.git, .ssh, .aws) is forbidden.".to_string());
                 }
             }

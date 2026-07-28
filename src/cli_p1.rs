@@ -61,8 +61,8 @@ pub fn handle_agent_validate_spec(spec_path: &str, json_output: bool) -> Result<
     }
 
     // Check regex: ^[a-z][a-z0-9_-]*$
-    let re = regex::Regex::new(r"^[a-z][a-z0-9_-]*$")
-        .unwrap_or_else(|_| regex::Regex::new(".*").unwrap());
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"^[a-z][a-z0-9_-]*$").unwrap());
     if !re.is_match(&spec.agent_spec_id) {
         emit_p1_error(
             "INVALID_AGENT_SPEC",
@@ -476,13 +476,17 @@ pub fn handle_agent_dry_run(
 }
 
 fn write_events_to_file(events: &[EvidenceEvent], file_path: &str) -> Result<(), String> {
-    let mut file =
+    let file =
         File::create(file_path).map_err(|e| format!("Failed to create evidence file: {e}"))?;
+    let mut writer = std::io::BufWriter::new(file);
     for e in events {
         let serialized = serde_json::to_string(e).unwrap();
-        writeln!(file, "{}", serialized)
+        writeln!(writer, "{}", serialized)
             .map_err(|e| format!("Failed to write to evidence file: {e}"))?;
     }
+    writer
+        .flush()
+        .map_err(|e| format!("Failed to flush evidence file: {e}"))?;
     Ok(())
 }
 
@@ -684,7 +688,17 @@ pub fn handle_agent_replay(
     }
 
     // Check root hashes match final event in log
-    let last_actual = actual_events.last().unwrap();
+    let last_actual = match actual_events.last() {
+        Some(evt) => evt,
+        None => {
+            emit_p1_error(
+                "REPLAY_VERIFICATION_FAILED",
+                "Evidence file contains no events to verify",
+                None,
+            );
+            return Ok(1);
+        }
+    };
     if replay.deterministic_root_hash != last_actual.content_hash {
         emit_p1_error(
             "REPLAY_VERIFICATION_FAILED",
